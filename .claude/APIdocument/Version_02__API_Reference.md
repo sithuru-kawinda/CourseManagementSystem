@@ -239,10 +239,14 @@ Register a new account. **V2:** Creates an **active Member** immediately — no 
 | **Greeting** | `Hi <firstName> <lastName>,` |
 | **Credentials table** | Email address + plain-text password |
 | **Warning** | ⚠ Prompt to change password after first login |
-| **Login button** | `Log in to TCCR →` — links to `APP_URL` env var (default `https://tccr.lk`) |
+| **Login button** | `Log in to TCCR →` — links to `APP_URL` env var (default `https://cms.bethelnet.au/login`) |
 | **Footer** | Security note: contact support if account was not created by the user |
 
-> **Environment variable:** Set `APP_URL=https://your-domain.com` in the notification-service and auth-service `.env` to control the login link. Defaults to `https://tccr.lk`.
+> **Environment variable:** `APP_URL` controls the login button link in **all** welcome emails (member registration + leader/g12/admin creation). Set it in `.env`:
+> ```
+> APP_URL=https://cms.bethelnet.au/login
+> ```
+> Default: `https://cms.bethelnet.au/login`
 >
 > **Email delivery:** Configured via `EMAIL_PROVIDER` (`sendgrid` \| `smtp` \| `console`). Delivery is retried 3× with 1 s → 2 s → 4 s backoff. A delivery failure is logged but never surfaces to the client — `201` is always returned if account creation succeeds.
 

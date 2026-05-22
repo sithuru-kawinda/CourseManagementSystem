@@ -24,6 +24,6 @@ export const config = {
   jwtSecret:          process.env.JWT_SECRET         ?? '',
   // URL to redirect the browser back to after Apple callback processing
   frontendUrl:        process.env.FRONTEND_URL        ?? 'https://cms.bethelnet.au',
-  // System URL included in welcome emails (login button link)
-  appUrl:             process.env.APP_URL             ?? 'https://tccr.lk',
+  // Login page URL included in welcome emails — override with APP_URL env var
+  appUrl:             process.env.APP_URL             ?? 'https://cms.bethelnet.au/login',
 } as const;

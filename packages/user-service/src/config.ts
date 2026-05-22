@@ -6,5 +6,5 @@ export const config = {
   firebaseWebApiKey:  process.env.FIREBASE_WEB_API_KEY  ?? '',
   storageBucket:      process.env.FIREBASE_STORAGE_BUCKET ?? '',
   serviceAuthUrl:     process.env.SERVICE_AUTH_URL ?? 'http://localhost:3001',
-  appUrl:             process.env.APP_URL ?? 'https://tccr.lk',
+  appUrl:             process.env.APP_URL ?? 'https://cms.bethelnet.au/login',
 } as const;

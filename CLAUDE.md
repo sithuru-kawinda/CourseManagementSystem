@@ -766,7 +766,7 @@ AUTH_RATE_LIMIT_MAX                     # stricter limit for /auth/* routes
 ATTACHMENT_MAX_SIZE_BYTES               # storage-service (default: 26214400)
 OUTBOX_POLL_INTERVAL_SECONDS            # outbox-worker (default: 5)
 OUTBOX_BATCH_SIZE                       # outbox-worker (default: 20)
-APP_URL                                 # user-service â€” system URL included in welcome emails (default: 'https://tccr.lk')
+APP_URL                                 # auth-service + user-service â€” login page link in all welcome emails (default: 'https://cms.bethelnet.au/login')
 ENROLLMENT_REJECTION_COOLOFF_HOURS      # enrollment-service
 BATCH_SWEEP_INTERVAL_MS                 # scheduled-jobs batchSweepJob interval (default: 60000)
 SEMESTER_SWEEP_INTERVAL_MS              # scheduled-jobs semesterSweepJob interval (default: 86400000)
