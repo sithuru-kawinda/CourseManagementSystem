@@ -930,13 +930,16 @@ Member submits an application for the `student` role. The request must include t
 
 List own role requests (FR-MEM-004).
 
-**Authentication:** Bearer required | **Roles:** `member`+
+**Authentication:** Bearer required | **Roles:** Any authenticated
+
+> **Response shape:** Returns a **plain array** (not paginated). `GetMyRoleRequestsUseCase` fetches all requests for the caller and returns them directly via `sendSuccess()`.
 
 **`200 OK`**
 ```json
-{
-  "items": [{
+[
+  {
     "id":            "req-001",
+    "requesterUid":  "Xf3aBC...",
     "requestedRole": "student",
     "status":        "pending",
     "applicantProfile": {
@@ -954,9 +957,8 @@ List own role requests (FR-MEM-004).
     "decisionNote":  null,
     "createdAt":     "2026-05-22T09:00:00.000Z",
     "decidedAt":     null
-  }],
-  "nextCursor": null, "total": 1
-}
+  }
+]
 ```
 
 ---
@@ -1054,7 +1056,7 @@ Generate a **15-minute signed URL** for the applicant's qualification PDF. The f
 
 ### 5.6 `POST /role-requests/:id/approve`
 
-Grants the requested role — adds `student` to `roles[]` and updates Firebase custom claims atomically. Notifies the requestor. **Does not create a course enrollment** — the student must separately apply for a course batch via `POST /enrollments`.
+Grants the requested role — adds `student` to `roles[]` and updates Firebase custom claims atomically. **Does not create a course enrollment** — the student must separately apply for a course batch via `POST /enrollments`.
 
 **Authentication:** Bearer required | **Roles:** `admin`, `super_admin`
 
@@ -1064,22 +1066,72 @@ Grants the requested role — adds `student` to `roles[]` and updates Firebase c
 { "note": "Welcome! You can now browse and apply for courses." }
 ```
 
-**`200 OK`**
+| Field | Type | Required | Validation |
+|-------|------|:--------:|-----------|
+| `note` | string | No | 1–500 chars — shown in the approval email sent to the student |
+
+#### Side Effects (on `200`)
+
+| Step | Detail |
+|------|--------|
+| 1 | `student` role added to user's `roles[]` in Firestore and Firebase Auth custom claims (dual-write) |
+| 2 | `role.granted` event published to the outbox |
+| 3 | Outbox-worker dispatches (~5 s) → **`RoleGrantedHandler`** runs: |
+|   | &nbsp;&nbsp;• In-app notification to the student: *"Student Role Approved"* |
+|   | &nbsp;&nbsp;• **Approval email** sent to the student's registered address (see below) |
+|   | &nbsp;&nbsp;• Audit log entry written |
+| 4 | Student enrichment is fire-and-forget — if user-service is unavailable, role grant still proceeds and email fields fall back to `undefined` |
+
+#### Approval Email
+
+| Field | Value |
+|-------|-------|
+| **To** | Student's registered email address |
+| **Subject** | `Your Student Application has been Approved — TCCR` |
+| **Greeting** | `Hi <firstName> <lastName>,` |
+| **Role table** | Role Granted: **Student ✓** (green) |
+| **Admin note** | Blue left-border callout showing the `note` field (omitted if blank) |
+| **Next steps** | Browse courses → Submit enrollment requests → Track progress |
+| **Login button** | `Log in to TCCR →` — links to `APP_URL` (default `https://cms.bethelnet.au/login`) |
+
+> Role labels: `student` → "Student", `leader` → "Cell Leader", `g12` → "G12 Leader"  
+> Email delivery is retried 3× with 1 s → 2 s → 4 s backoff. Failure is logged but never surfaces — `200` is always returned if the role grant succeeds.
+
+**`200 OK`** — Updated `RoleRequest` entity with `status: "approved"`:
+
 ```json
 {
-  "roleRequestId": "req-001",
-  "userRoles":     ["member", "student"],
-  "message":       "Student role granted. Member can now enroll in courses."
+  "id":            "req-001",
+  "requesterUid":  "Xf3aBC...",
+  "requestedRole": "student",
+  "status":        "approved",
+  "decidedByUid":  "admin-uid",
+  "decisionNote":  "Welcome! You can now browse and apply for courses.",
+  "applicantProfile": {
+    "firstName":   "John",
+    "lastName":    "Doe",
+    "phoneNumber": "+94771234567",
+    "email":       "john@example.com",
+    "dateOfBirth": "2000-06-15",
+    "gender":      "male",
+    "address":     "123 Main St, Colombo"
+  },
+  "qualificationTitle":       "BSc Computer Science",
+  "qualificationStoragePath": "qualifications/Xf3aBC.../req-001.pdf",
+  "createdAt":     "2026-05-22T09:00:00.000Z",
+  "decidedAt":     "2026-05-22T10:05:00.000Z"
 }
 ```
 
-**`409 Conflict`** → `INVALID_STATE` — request already decided
+**`404 Not Found`** → `ROLE_REQUEST_NOT_FOUND`
+
+**`409 Conflict`** → `INVALID_STATE` — request is already approved or rejected
 
 ---
 
 ### 5.7 `POST /role-requests/:id/reject`
 
-Rejects the role application and notifies the requestor (FR-ENR-005).
+Rejects the role application (FR-ENR-005).
 
 **Authentication:** Bearer required | **Roles:** `admin`, `super_admin`
 
@@ -1087,7 +1139,46 @@ Rejects the role application and notifies the requestor (FR-ENR-005).
 { "note": "Batch is full. Please apply for the next intake." }
 ```
 
-**`200 OK`** — RoleRequest with `status: "rejected"`.
+| Field | Type | Required | Validation |
+|-------|------|:--------:|-----------|
+| `note` | string | No | 1–500 chars |
+
+#### Side Effects (on `200`)
+
+| Step | Detail |
+|------|--------|
+| 1 | `role.rejected` event published to the outbox |
+| 2 | Outbox-worker dispatches — event is **not currently wired** in EventDispatcher; silently skipped. No email or in-app notification is sent to the student at this time. |
+
+**`200 OK`** — Updated `RoleRequest` entity with `status: "rejected"`:
+
+```json
+{
+  "id":            "req-001",
+  "requesterUid":  "Xf3aBC...",
+  "requestedRole": "student",
+  "status":        "rejected",
+  "decidedByUid":  "admin-uid",
+  "decisionNote":  "Batch is full. Please apply for the next intake.",
+  "applicantProfile": {
+    "firstName":   "John",
+    "lastName":    "Doe",
+    "phoneNumber": "+94771234567",
+    "email":       "john@example.com",
+    "dateOfBirth": "2000-06-15",
+    "gender":      "male",
+    "address":     "123 Main St, Colombo"
+  },
+  "qualificationTitle":       "BSc Computer Science",
+  "qualificationStoragePath": "qualifications/Xf3aBC.../req-001.pdf",
+  "createdAt":     "2026-05-22T09:00:00.000Z",
+  "decidedAt":     "2026-05-22T10:05:00.000Z"
+}
+```
+
+**`404 Not Found`** → `ROLE_REQUEST_NOT_FOUND`
+
+**`409 Conflict`** → `INVALID_STATE` — request is already approved or rejected
 
 ---
 
@@ -2978,43 +3069,38 @@ Nested inside `RoleRequest.applicantProfile`. All fields are provided by the mem
 
 Events published to the `outbox` Firestore collection and dispatched by the Outbox Worker. At-least-once delivery; up to 5 retries with exponential backoff.
 
+> **Wiring legend:** ✅ Wired in `EventDispatcher` and handler exists. ⚠️ Published to outbox but **not wired** in EventDispatcher — silently skipped (known gap). 🔇 Delivered to service but **no handler** exists in that service — silently dropped.
+
 ### V1 Events (all preserved)
 
-| Event | Publisher | Consumers | Trigger |
-|-------|-----------|-----------|---------|
-| `user.registered` | Auth Service | User, Notification, Audit | Registration (payload expanded in V2) |
-| `registration.approved` | Enrollment Service | Notification, Audit | V1 registration approval |
-| `registration.rejected` | Enrollment Service | Notification, Audit | V1 registration rejection |
-| `enrollment.pending` | Enrollment Service | Notification, Audit | Student submits enrollment |
-| `enrollment.approved` | Enrollment Service | Notification, Audit | Admin approves enrollment |
-| `enrollment.rejected` | Enrollment Service | Notification, Audit | Admin rejects enrollment |
-| `enrollment.withdrawn` | Enrollment Service | Audit | Student withdraws |
-| `course.published` | Course Service | Notification, Audit | Course published |
-| `progress.subjectCompleted` | Progress Service | Audit | Subject marked complete |
-| `admin.created` | User Service | Notification, Audit | Admin/leader/g12 created or promoted — `AdminCreatedHandler` sends role-specific email (3 branches: promotion notice / leader+g12 welcome with credentials / default admin welcome) |
-| `admin.suspended` | User Service | Notification, Audit | Admin suspended |
-| `audit.action` | Any service | Audit | Direct audit write |
+| Event | Publisher | Wired Consumers | Trigger |
+|-------|-----------|-----------------|---------|
+| `user.registered` | Auth Service | ✅ Notification, ✅ Audit | Registration (payload expanded in V2) |
+| `registration.approved` | Enrollment Service | ✅ Notification, ✅ Audit | V1 registration approval |
+| `registration.rejected` | Enrollment Service | ✅ Notification, ✅ Audit | V1 registration rejection |
+| `enrollment.pending` | Enrollment Service | ✅ Notification, ✅ Audit | Student submits enrollment |
+| `enrollment.approved` | Enrollment Service | ✅ Notification, ✅ Audit | Admin approves enrollment |
+| `enrollment.rejected` | Enrollment Service | ✅ Notification, ✅ Audit | Admin rejects enrollment |
+| `enrollment.withdrawn` | Enrollment Service | ✅ Audit | Student withdraws |
+| `course.published` | Course Service | 🔇 Notification (delivered but no handler — silently dropped), ✅ Audit | Course published |
+| `progress.subjectCompleted` | Progress Service | ✅ Audit | Subject marked complete |
+| `admin.created` | User Service | ✅ Notification (`AdminCreatedHandler` — 3 branches: promotion notice / leader+g12 welcome with credentials / default admin welcome), ✅ Audit | Admin/leader/g12 created or promoted |
+| `admin.suspended` | User Service | ✅ Notification, ✅ Audit | Admin suspended |
+| `audit.action` | Any service | ✅ Audit | Direct audit write |
 
 ### V2 New Events
 
-| Event | Publisher | Consumers | Trigger |
-|-------|-----------|-----------|---------|
-| `user.federated_linked` | Auth Service | User, Audit | Google/Apple provider linked |
-| `user.roles_changed` | User Service | Notification, Audit | Roles added or removed |
-| `role.requested` | Enrollment Service | Notification, Audit | Member submits role request |
-| `role.granted` | Enrollment Service | Notification, Audit | Admin approves role request |
-| `role.rejected` | Enrollment Service | Notification, Audit | Admin rejects role request |
-| `batch.created` | Course Service | Audit | Admin creates batch |
-| `batch.window_closed` | Scheduled Jobs | Notification, Audit | Batch intake window auto-closes |
-| `semester.disabled` | Scheduled Jobs | Notification, Audit | Semester endDate passed |
-| `cell.created` | Cell Service | Audit | Cell group created |
-| `cell.join_requested` | Cell Service | Notification (to admin), Audit | Member applies to join a cell |
-| `cell.join_approved` | Cell Service | Notification (to member), Audit | Admin approves member into cell |
-| `cell.join_rejected` | Cell Service | Notification (to member), Audit | Admin rejects cell join request |
-| `cell.member_added` | Cell Service | Notification, Audit | Leader/Admin directly adds a member |
-| `cell.member_removed` | Cell Service | Audit | Member removed from cell |
-| `cell_report.filed` | Cell Service | Notification (fan-out to members), Audit | Leader files cell report |
-| `cell_report.voided` | Cell Service | Audit | Cell report voided |
+| Event | Publisher | Wired Consumers | Trigger |
+|-------|-----------|-----------------|---------|
+| `role.requested` | Enrollment Service | ⚠️ Not wired — silently skipped | Member submits role request |
+| `role.granted` | Enrollment Service | ✅ Notification (`RoleGrantedHandler` — in-app notification + approval email with role label, optional admin note, next-steps, login link), ✅ Audit | Admin approves role request |
+| `role.rejected` | Enrollment Service | ⚠️ Not wired — silently skipped | Admin rejects role request |
+| `cell.created` | Cell Service | ✅ Audit | Cell group created |
+| `cell.join_requested` | Cell Service | ✅ Audit | Member applies to join a cell |
+| `cell.join_approved` | Cell Service | ✅ Audit | Admin approves member into cell |
+| `cell.join_rejected` | Cell Service | ✅ Audit | Admin rejects cell join request |
+| `cell_report.filed` | Cell Service | ✅ Audit | Leader files cell report |
+| `cell_report.voided` | Cell Service | ✅ Audit | Cell report voided |
 
 **Delivery guarantees:**
 - At-least-once; Outbox Worker retries up to **5 times** with exponential backoff
@@ -3024,4 +3110,4 @@ Events published to the `outbox` Firestore collection and dispatched by the Outb
 ---
 
 *© 2026 Future CX Lanka (Pvt) Ltd — Confidential*
-*Document version: 2.5.0 | Paired with TCCR SRS v2.0 dated 15 May 2026 and TCCR Backend Blueprint v2.0.0*
+*Document version: 2.8.0 | Paired with TCCR SRS v2.0 dated 22 May 2026 and TCCR Backend Blueprint v2.0.0*

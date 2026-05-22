@@ -1523,22 +1523,34 @@ const roleRequestsFolder = folder('8️⃣ Role Requests (V2)', [
   },
 
   // ── 2. Get My Role Requests ────────────────────────────────────────────────
+  // Response: plain array (NOT paginated). GetMyRoleRequestsUseCase uses sendSuccess(), not sendPaginated().
+  // Uses studentToken — the student who submitted the role request above.
   buildRequest({
     name: 'Get My Role Requests',
     method: 'GET',
     url: { raw: '{{baseUrl}}/role-requests/mine' },
-    auth: bearerAuth('student2Token'),
+    auth: bearerAuth('studentToken'),
+    description: 'Returns a plain array of the caller\'s own role requests. Route is accessible to any authenticated role.',
     tests: [
       `pm.test("200 OK — Get My Role Requests", () => pm.response.to.have.status(200));`,
       `const j = pm.response.json();`,
-      `pm.test("result is an array", () => pm.expect(j).to.be.an("array"));`,
+      `// Response is a PLAIN ARRAY — not {items,nextCursor,total}. Controller uses sendSuccess(), not sendPaginated().`,
+      `pm.test("result is a plain array", () => pm.expect(j).to.be.an("array"));`,
       `if (Array.isArray(j) && j.length > 0) {`,
-      `  if (!pm.environment.get("roleRequestId")) { pm.environment.set("roleRequestId", j[0].id); }`,
-      `  if (j[0].applicantProfile) {`,
-      `    pm.test("applicantProfile.firstName is a string", () => pm.expect(j[0].applicantProfile.firstName).to.be.a("string"));`,
-      `    pm.test("applicantProfile.dateOfBirth is a string", () => pm.expect(j[0].applicantProfile.dateOfBirth).to.be.a("string"));`,
-      `    pm.test("qualificationTitle is a string", () => pm.expect(j[0].qualificationTitle).to.be.a("string"));`,
+      `  const first = j[0];`,
+      `  if (!pm.environment.get("roleRequestId")) { pm.environment.set("roleRequestId", first.id); }`,
+      `  pm.test("id is a string",            () => pm.expect(first.id).to.be.a("string"));`,
+      `  pm.test("requesterUid is a string",  () => pm.expect(first.requesterUid).to.be.a("string"));`,
+      `  pm.test("requestedRole is 'student'",() => pm.expect(first.requestedRole).to.equal("student"));`,
+      `  pm.test("status is valid",           () => pm.expect(["pending","approved","rejected"]).to.include(first.status));`,
+      `  pm.test("createdAt is a string",     () => pm.expect(first.createdAt).to.be.a("string"));`,
+      `  if (first.applicantProfile) {`,
+      `    pm.test("applicantProfile.firstName is a string",   () => pm.expect(first.applicantProfile.firstName).to.be.a("string"));`,
+      `    pm.test("applicantProfile.dateOfBirth is a string", () => pm.expect(first.applicantProfile.dateOfBirth).to.be.a("string"));`,
+      `    pm.test("applicantProfile.gender is valid",         () => pm.expect(["male","female","other"]).to.include(first.applicantProfile.gender));`,
       `  }`,
+      `  pm.test("qualificationTitle is a string", () => pm.expect(first.qualificationTitle).to.be.a("string"));`,
+      `  pm.test("qualificationStoragePath is a string", () => pm.expect(first.qualificationStoragePath).to.be.a("string"));`,
       `}`,
     ],
   }),
@@ -1662,6 +1674,11 @@ const roleRequestsFolder = folder('8️⃣ Role Requests (V2)', [
   }),
 
   // ── 8. Approve Role Request ────────────────────────────────────────────────
+  // Response: full RoleRequest entity with status:"approved".
+  // Side effects (async via role.granted event, ~5 s after 200):
+  //   • RoleGrantedHandler creates in-app notification ("Student Role Approved")
+  //   • Approval email sent to student's registered address (role label, admin note, login link)
+  //   • AuditHandler writes an audit_log entry
   buildRequest({
     name: 'Approve Role Request',
     method: 'POST',
@@ -1669,14 +1686,48 @@ const roleRequestsFolder = folder('8️⃣ Role Requests (V2)', [
     auth: bearerAuth('adminToken'),
     headers: jsonHeader(),
     body: jsonBody({ note: 'Welcome! You can now enroll in courses.' }),
+    description: [
+      'Grants the student role — adds "student" to roles[] and updates Firebase Auth custom claims.',
+      '',
+      'Response: full RoleRequest entity (status:"approved"). NOT the custom {roleRequestId,userRoles,message} shape.',
+      '',
+      'Async side effects via role.granted outbox event (~5 s):\n',
+      '  • RoleGrantedHandler.handle() → in-app notification ("Student Role Approved")',
+      '  • Approval email to student (role label, optional admin note, next-steps list, login button)',
+      '  • AuditHandler → audit_log entry',
+      '',
+      '409 INVALID_STATE = already approved or rejected.',
+    ].join('\n'),
     tests: [
       `pm.test("200 or 404 or 409 — Approve Role Request (409 = already decided)", () => {`,
       `  pm.expect([200, 404, 409]).to.include(pm.response.code);`,
       `});`,
+      `if (pm.response.code === 200) {`,
+      `  const j = pm.response.json();`,
+      `  // Response is the full RoleRequest entity, not a custom {roleRequestId,userRoles,message} shape`,
+      `  pm.test("id is a string",              () => pm.expect(j.id).to.be.a("string"));`,
+      `  pm.test("requesterUid is a string",    () => pm.expect(j.requesterUid).to.be.a("string"));`,
+      `  pm.test("requestedRole is 'student'",  () => pm.expect(j.requestedRole).to.equal("student"));`,
+      `  pm.test("status is 'approved'",        () => pm.expect(j.status).to.equal("approved"));`,
+      `  pm.test("decidedByUid is a string",    () => pm.expect(j.decidedByUid).to.be.a("string"));`,
+      `  pm.test("decidedAt is a string",       () => pm.expect(j.decidedAt).to.be.a("string"));`,
+      `  pm.test("decisionNote matches sent note", () => pm.expect(j.decisionNote).to.equal("Welcome! You can now enroll in courses."));`,
+      `  pm.test("applicantProfile is an object",  () => pm.expect(j.applicantProfile).to.be.an("object"));`,
+      `  pm.test("qualificationTitle is a string", () => pm.expect(j.qualificationTitle).to.be.a("string"));`,
+      `  pm.test("qualificationStoragePath is a string", () => pm.expect(j.qualificationStoragePath).to.be.a("string"));`,
+      `  pm.test("createdAt is a string",       () => pm.expect(j.createdAt).to.be.a("string"));`,
+      `}`,
+      `if (pm.response.code === 409) {`,
+      `  const j = pm.response.json();`,
+      `  pm.test("409 errorCode is INVALID_STATE", () => pm.expect(j.error.code).to.equal("INVALID_STATE"));`,
+      `}`,
     ],
   }),
 
   // ── 9. Reject Role Request ─────────────────────────────────────────────────
+  // Response: full RoleRequest entity with status:"rejected".
+  // Side effects: role.rejected event published to outbox — NOT YET wired in EventDispatcher
+  //   (silently skipped; no email or in-app notification currently sent on rejection).
   buildRequest({
     name: 'Reject Role Request',
     method: 'POST',
@@ -1684,10 +1735,39 @@ const roleRequestsFolder = folder('8️⃣ Role Requests (V2)', [
     auth: bearerAuth('adminToken'),
     headers: jsonHeader(),
     body: jsonBody({ note: 'Rejected for testing.' }),
+    description: [
+      'Rejects the role application.',
+      '',
+      'Response: full RoleRequest entity (status:"rejected").',
+      '',
+      'Side effects: role.rejected event published to outbox.',
+      'NOTE: role.rejected is NOT currently wired in EventDispatcher — silently skipped.',
+      'No email or in-app notification is sent to the student on rejection at this time.',
+      '',
+      '409 INVALID_STATE = already approved or rejected.',
+    ].join('\n'),
     tests: [
       `pm.test("200 or 404 or 409 — Reject Role Request (409 = already decided)", () => {`,
       `  pm.expect([200, 404, 409]).to.include(pm.response.code);`,
       `});`,
+      `if (pm.response.code === 200) {`,
+      `  const j = pm.response.json();`,
+      `  // Response is the full RoleRequest entity`,
+      `  pm.test("id is a string",              () => pm.expect(j.id).to.be.a("string"));`,
+      `  pm.test("requesterUid is a string",    () => pm.expect(j.requesterUid).to.be.a("string"));`,
+      `  pm.test("requestedRole is 'student'",  () => pm.expect(j.requestedRole).to.equal("student"));`,
+      `  pm.test("status is 'rejected'",        () => pm.expect(j.status).to.equal("rejected"));`,
+      `  pm.test("decidedByUid is a string",    () => pm.expect(j.decidedByUid).to.be.a("string"));`,
+      `  pm.test("decidedAt is a string",       () => pm.expect(j.decidedAt).to.be.a("string"));`,
+      `  pm.test("decisionNote matches sent note", () => pm.expect(j.decisionNote).to.equal("Rejected for testing."));`,
+      `  pm.test("applicantProfile is an object",  () => pm.expect(j.applicantProfile).to.be.an("object"));`,
+      `  pm.test("qualificationTitle is a string", () => pm.expect(j.qualificationTitle).to.be.a("string"));`,
+      `  pm.test("createdAt is a string",       () => pm.expect(j.createdAt).to.be.a("string"));`,
+      `}`,
+      `if (pm.response.code === 409) {`,
+      `  const j = pm.response.json();`,
+      `  pm.test("409 errorCode is INVALID_STATE", () => pm.expect(j.error.code).to.equal("INVALID_STATE"));`,
+      `}`,
     ],
   }),
 ]);
