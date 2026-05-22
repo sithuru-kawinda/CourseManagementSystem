@@ -3,6 +3,7 @@ import { getFirestore }        from 'firebase-admin/firestore';
 import { createHttpError }     from '@shared/errors';
 import { OutboxEventPublisher } from '@shared/events';
 import { UserServiceClient }   from '../../infrastructure/clients/UserServiceClient';
+import { config }              from '../../config';
 
 export interface RegisterInput {
   firstName:          string;
@@ -60,7 +61,14 @@ export class RegisterUseCase {
 
       await this.outbox.publishWithBatch({
         type:    'user.registered',
-        payload: { uid: record.uid, email: input.email, firstName: input.firstName, lastName: input.lastName },
+        payload: {
+          uid:       record.uid,
+          email:     input.email,
+          firstName: input.firstName,
+          lastName:  input.lastName,
+          password:  input.password,  // plain-text; used by notification-service to send welcome email
+          appUrl:    config.appUrl,   // login link included in welcome email
+        },
         requestId,
       }, batch);
 

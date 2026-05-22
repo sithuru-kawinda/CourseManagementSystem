@@ -41,6 +41,12 @@ describe('RegisterUseCase', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    // Re-apply default implementations so a previous test's mockRejectedValue/mockReturnValue
+    // override doesn't bleed into the next test (clearAllMocks only resets calls, not impls).
+    authMock.createUser.mockResolvedValue({ uid: 'new-uid' });
+    authMock.setCustomUserClaims.mockResolvedValue(undefined);
+    authMock.deleteUser.mockResolvedValue(undefined);
+    batchMock.commit.mockResolvedValue(undefined);
     client  = makeClient();
     outbox  = makeOutbox();
     useCase = new RegisterUseCase(client, outbox);
@@ -72,7 +78,7 @@ describe('RegisterUseCase', () => {
       );
     });
 
-    it('outbox event payload includes uid, email, firstName, lastName', async () => {
+    it('outbox event payload includes uid, email, firstName, lastName, password, appUrl', async () => {
       client.emailExists.mockResolvedValue(false);
       outbox.publishWithBatch.mockResolvedValue(undefined);
 
@@ -86,6 +92,8 @@ describe('RegisterUseCase', () => {
             email:     BASE_INPUT.email,
             firstName: BASE_INPUT.firstName,
             lastName:  BASE_INPUT.lastName,
+            password:  BASE_INPUT.password,  // used by notification-service for welcome email
+            appUrl:    expect.any(String),   // login link from config.appUrl
           }),
           requestId: 'req-payload',
         }),

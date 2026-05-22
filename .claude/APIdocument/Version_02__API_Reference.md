@@ -224,6 +224,14 @@ Register a new account. **V2:** Creates an **active Member** immediately — no 
 { "uid": "Xf3aBC...", "message": "Registration successful. Please verify your email." }
 ```
 
+> **Welcome email (sent immediately on `201`):** The new member receives an email at the registered address containing:
+> - Full name greeting
+> - Credentials table — **Email** and **Password**
+> - ⚠ Prompt to change password after first login
+> - **"Log in to TCCR →"** button linking to the system URL (`APP_URL`)
+>
+> Email subject: `Welcome to TCCR — Your Account is Active`
+
 **`409 Conflict`**
 ```json
 { "error": { "code": "EMAIL_EXISTS", "message": "Email address already registered." }, "requestId": "..." }
