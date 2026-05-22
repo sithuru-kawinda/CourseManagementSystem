@@ -4,6 +4,11 @@ export const rejectSchema = z.object({
   reason: z.string().min(1).max(500).optional(),
 });
 
+// POST /admin/enrollments/:id/approve — optional approval note shown in email
+export const approveEnrollmentSchema = z.object({
+  note: z.string().min(1).max(500).optional(),
+});
+
 export const bulkApproveSchema = z.object({
   ids: z.array(z.string()).min(1).max(100),
 });

@@ -70,5 +70,5 @@ export const container = {
   ),
   usersController:      new UsersController(getUsers, getUserById, suspendUser, reactivate, addRole, removeRole, createUserDirectly, promoteMember, deleteUser),
   superAdminController: new SuperAdminController(createAdmin, deleteAdmin, getUsers, getUserById, suspendUser, reactivate, promoteToAdmin),
-  internalController:   new InternalController(checkEmail, approveUser, getUsers, addRole),
+  internalController:   new InternalController(checkEmail, approveUser, getUsers, addRole, getUserById),
 };

@@ -7,7 +7,7 @@ import { ApproveEnrollmentUseCase }         from '../../application/use-cases/Ap
 import { RejectEnrollmentUseCase }          from '../../application/use-cases/RejectEnrollmentUseCase';
 import { WithdrawEnrollmentUseCase }        from '../../application/use-cases/WithdrawEnrollmentUseCase';
 import { IEnrollmentRepository }           from '../../domain/repositories/IEnrollmentRepository';
-import { rejectSchema, listSchema, enrollV2Schema } from '../validators/enrollmentValidator';
+import { rejectSchema, listSchema, enrollV2Schema, approveEnrollmentSchema } from '../validators/enrollmentValidator';
 
 export class EnrollmentController {
   constructor(
@@ -70,8 +70,10 @@ export class EnrollmentController {
 
   approveAdmin = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
+      const parsed    = approveEnrollmentSchema.safeParse(req.body);
+      if (!parsed.success) return next(fromZodError(parsed.error));
       const requestId  = (req.headers['x-request-id'] as string) ?? '';
-      const enrollment = await this.approveUC.execute(req.params.id, requestId);
+      const enrollment = await this.approveUC.execute(req.params.id, requestId, parsed.data.note);
       sendSuccess(res, enrollment);
     } catch (err) { next(err); }
   };

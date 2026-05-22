@@ -4983,7 +4983,7 @@
         },
         {
           "id": "7a20b02c-5eb8-4080-ad79-cc90f037d9bb",
-          "name": "Approve Enrollment",
+          "name": "Approve Enrollment (welcome email queued)",
           "request": {
             "method": "POST",
             "header": [
@@ -4994,7 +4994,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"note\": \"Approved for the 2026 intake.\"\n}",
+              "raw": "{\n  \"note\": \"Congratulations! Your enrollment has been approved for the 2026 intake. You can now access all course content.\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -5032,9 +5032,16 @@
                 "id": "0e21b98e-a407-4d32-a63a-a54c20032924",
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test(\"200 or 404 — Approve Enrollment\", () => {",
-                  "  pm.expect([200, 404]).to.include(pm.response.code);",
-                  "});"
+                  "// ── Approve enrollment — triggers welcome email to student (~5 s via outbox-worker) ──",
+                  "pm.test(\"200 OK — Approve Enrollment\", () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json();",
+                  "pm.test(\"state is approved\", () => pm.expect(j.state).to.equal(\"approved\"));",
+                  "pm.test(\"approvedAt is set\", () => pm.expect(j.approvedAt).to.be.a(\"string\").and.not.empty);",
+                  "pm.test(\"studentUid is present\", () => pm.expect(j.studentUid).to.be.a(\"string\").and.not.empty);",
+                  "pm.test(\"courseId is present\", () => pm.expect(j.courseId).to.be.a(\"string\").and.not.empty);",
+                  "// NOTE: welcome email dispatched asynchronously (~5 s).",
+                  "// Email subject: 'Enrollment Approved — <course title> — TCCR'",
+                  "// Email includes: student name greeting, course name, admin note, 'Log in to TCCR →' button."
                 ]
               }
             }

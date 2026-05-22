@@ -11,4 +11,15 @@ export class UserServiceClient {
   async addRole(uid: string, role: string): Promise<void> {
     await this.http.post('/internal/users/add-role', { uid, role });
   }
+
+  async getUser(uid: string): Promise<{ email: string; firstName: string; lastName: string } | null> {
+    try {
+      const res = await this.http.get<{ uid: string; email: string; firstName: string; lastName: string }>(
+        `/internal/users/${uid}`,
+      );
+      return { email: res.data.email, firstName: res.data.firstName, lastName: res.data.lastName };
+    } catch {
+      return null;
+    }
+  }
 }

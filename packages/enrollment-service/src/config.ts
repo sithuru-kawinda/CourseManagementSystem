@@ -7,4 +7,5 @@ export const config = {
   serviceCourseUrl:     process.env.SERVICE_COURSE_URL         ?? 'http://localhost:3003',
   cooloffHours:         Number(process.env.ENROLLMENT_REJECTION_COOLOFF_HOURS ?? 24),
   storageBucket:        process.env.FIREBASE_STORAGE_BUCKET    ?? '',
+  appUrl:               process.env.APP_URL                    ?? 'https://cms.bethelnet.au/login',
 } as const;

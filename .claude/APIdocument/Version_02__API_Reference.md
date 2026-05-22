@@ -2,11 +2,11 @@
 ## The Christian Center Rathmalana · `tccr-backend`
 ### REST API · Version 2.4.0 · Base URL: `https://api.tccr.lk/api/v1`
 
-**Version:** 2.6.0
+**Version:** 2.7.0
 **Date:** 22 May 2026
 **Organisation:** Future CX Lanka (Pvt) Ltd
 **Status:** Release Baseline
-**Supersedes:** Version 2.5.0 (22 May 2026)
+**Supersedes:** Version 2.6.0 (22 May 2026)
 
 ---
 
@@ -1694,15 +1694,66 @@ Admin view.
 
 ### 11.5 `POST /enrollments/:id/approve`
 
-Approve an enrollment. Notifies student with approver name (FR-ENR-005).
+Approve an enrollment. Sets `state: "approved"` on the enrollment and dispatches a **welcome email** to the student (FR-ENR-005).
 
-**Authentication:** Bearer required | **Roles:** `admin`, `super_admin`
+**Authentication:** Bearer required | **Roles:** `admin`, `super_admin`  
+**Content-Type:** `application/json`
+
+#### Request Body
 
 ```json
-{ "note": "Approved for the 2026 intake." }
+{ "note": "Congratulations! Your enrollment has been approved for the 2026 intake." }
 ```
 
-**`200 OK`** — Enrollment with `status: "approved"`.
+| Field | Type | Required | Validation |
+|-------|------|:--------:|-----------|
+| `note` | string | No | 1–500 chars — shown in the approval email sent to the student |
+
+#### Side Effects (on `200`)
+
+| Step | Detail |
+|------|--------|
+| 1 | Enrollment `state` → `approved`, `approvedAt` timestamp set |
+| 2 | `enrollment.approved` event published to the outbox |
+| 3 | Outbox-worker dispatches (~5 s) → **`EnrollmentApprovedHandler`** runs: |
+|   | &nbsp;&nbsp;• In-app notification to the student: *"Enrollment Approved"* |
+|   | &nbsp;&nbsp;• **Approval email** sent to the student's registered address (see below) |
+|   | &nbsp;&nbsp;• Push notification to student's FCM token (if registered; best-effort) |
+
+#### Approval Email
+
+| Field | Value |
+|-------|-------|
+| **To** | Student's registered email address |
+| **Subject** | `Enrollment Approved — <Course Title> — TCCR` |
+| **Greeting** | `Hi <firstName> <lastName>,` |
+| **Course table** | Course name + Status: **Approved ✓** |
+| **Admin note** | Highlighted callout block showing the `note` field (omitted if blank) |
+| **Body** | Instruction to log in and access the course from *My Enrollments* |
+| **Login button** | `Log in to TCCR →` — links to `APP_URL` (default `https://cms.bethelnet.au/login`) |
+
+> **Email delivery:** Retried 3× with 1 s → 2 s → 4 s backoff. Failure is logged but never surfaces — `200` is returned if the state transition succeeds.
+
+#### Response
+
+**`200 OK`** — Enrollment object with `state: "approved"`.
+
+```json
+{
+  "id": "Xf3aBC..._course-abc",
+  "studentUid": "Xf3aBC...",
+  "courseId": "course-abc",
+  "state": "approved",
+  "approvedAt": "2026-05-22T10:00:00.000Z",
+  "reason": null,
+  "createdAt": "2026-05-20T09:00:00.000Z",
+  "updatedAt": "2026-05-22T10:00:00.000Z"
+}
+```
+
+**`404 Not Found`** → `ENROLLMENT_NOT_FOUND`
+
+**`409 Conflict`** → `INVALID_STATE` — enrollment is not in `pending` state
 
 ---
 

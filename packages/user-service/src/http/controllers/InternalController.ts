@@ -5,14 +5,16 @@ import { CheckEmailExistsUseCase }         from '../../application/use-cases/Che
 import { AddRoleUseCase }                  from '../../application/use-cases/AddRoleUseCase';
 import { ApproveUserUseCase }              from '../../application/use-cases/ApproveUserUseCase';
 import { GetUsersUseCase }                 from '../../application/use-cases/GetUsersUseCase';
+import { GetUserByIdUseCase }              from '../../application/use-cases/GetUserByIdUseCase';
 import { checkEmailSchema, approveUserSchema, addRoleSchema } from '../validators/internalValidator';
 
 export class InternalController {
   constructor(
-    private readonly checkEmail:  CheckEmailExistsUseCase,
-    private readonly approveUser: ApproveUserUseCase,
-    private readonly getUsers:    GetUsersUseCase,
+    private readonly checkEmail:    CheckEmailExistsUseCase,
+    private readonly approveUser:   ApproveUserUseCase,
+    private readonly getUsers:      GetUsersUseCase,
     private readonly addRoleUseCase: AddRoleUseCase,
+    private readonly getUserById:   GetUserByIdUseCase,
   ) {}
 
   exists = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
@@ -49,6 +51,14 @@ export class InternalController {
 
       await this.addRoleUseCase.execute(parsed.data.uid, parsed.data.role);
       res.status(204).send();
+    } catch (err) { next(err); }
+  };
+
+  // GET /internal/users/:uid — used by enrollment-service to enrich approval email payload
+  getById = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const user = await this.getUserById.execute(req.params.uid);
+      sendSuccess(res, { uid: user.uid, email: user.email, firstName: user.firstName, lastName: user.lastName });
     } catch (err) { next(err); }
   };
 }
