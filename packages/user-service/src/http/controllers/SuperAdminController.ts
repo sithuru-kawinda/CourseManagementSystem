@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { fromZodError }                    from '@shared/errors';
 import { sendSuccess, sendPaginated }      from '@shared/response';
-import { AuthenticatedRequest }            from '@shared/auth-middleware';
+import { AuthenticatedRequest, Role }      from '@shared/auth-middleware';
 import { CreateAdminUseCase }              from '../../application/use-cases/CreateAdminUseCase';
 import { DeleteAdminUseCase }              from '../../application/use-cases/DeleteAdminUseCase';
 import { GetUsersUseCase }                 from '../../application/use-cases/GetUsersUseCase';
@@ -45,7 +45,8 @@ export class SuperAdminController {
 
   getAdmin = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const user = await this.getUserByIdUseCase.execute(req.params.uid);
+      const { principal } = req as AuthenticatedRequest;
+      const user = await this.getUserByIdUseCase.execute(req.params.uid, principal.roles as Role[]);
       sendSuccess(res, user);
     } catch (err) { next(err); }
   };
