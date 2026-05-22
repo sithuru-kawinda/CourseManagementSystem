@@ -6,4 +6,5 @@ export const config = {
   serviceUserUrl:       process.env.SERVICE_USER_URL           ?? 'http://localhost:3002',
   serviceCourseUrl:     process.env.SERVICE_COURSE_URL         ?? 'http://localhost:3003',
   cooloffHours:         Number(process.env.ENROLLMENT_REJECTION_COOLOFF_HOURS ?? 24),
+  storageBucket:        process.env.FIREBASE_STORAGE_BUCKET    ?? '',
 } as const;

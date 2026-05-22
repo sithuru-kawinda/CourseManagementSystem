@@ -24,6 +24,13 @@ const makeRequest = (status: 'pending' | 'approved' | 'rejected' = 'pending'): R
     id: 'req-1', requesterUid: 'uid-1', requestedRole: 'student',
     status, decidedByUid: null, decisionNote: null,
     createdAt: '2026-01-01T00:00:00.000Z', decidedAt: null,
+    applicantProfile: {
+      firstName: 'John', lastName: 'Doe', phoneNumber: '+94771234567',
+      email: 'john@example.com', dateOfBirth: '2000-06-15',
+      gender: 'male', address: '123 Main St',
+    },
+    qualificationTitle:       'BSc Computer Science',
+    qualificationStoragePath: 'qualifications/uid-1/req-1.pdf',
   });
 
 describe('ApproveRoleRequestUseCase', () => {

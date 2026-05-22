@@ -100,8 +100,12 @@ node scripts/seed-new-g12.js
 node scripts/seed-new-g12-online.js
 
 # Regenerate the Postman collection from source (overwrites postman/CMP_Backend.postman_collection.json)
-# Run this after adding new endpoints â€” generates 139 requests across 17 folders
+# Run this after adding new endpoints â€” generates 165 requests across 17 folders
 node scripts/build-postman-collection.js
+
+# Audit the Postman collection against implemented routes â€” reports missing/extra requests
+# Compares collection URLs against actual service route files; useful after adding endpoints
+node scripts/audit-postman.js
 
 # One-time migration: backfill `roles` array on all users in online Firebase
 # Usage: node scripts/migrate-roles.js path/to/serviceAccount.json
@@ -139,6 +143,11 @@ node scripts/newman-cell-service.js
 # Run Postman collection via Newman directly against already-running services
 # (no clean-slate setup â€” services must already be running)
 npm run test:newman
+
+# Restore all seed accounts (role, password, Firebase claims, Firestore doc) to their original state
+# before running Newman against online Firebase â€” run once per Newman session
+# Reads credentials from .env.local
+node scripts/_restore-seeds.js
 
 # Supplement smoke test â€” covers 10 endpoints not in smoke-test.js (lesson CRUD, password-reset verify,
 # avatar upload, course restore, title search, make-admin, health probes)
@@ -248,6 +257,14 @@ Adding a new proxied route in the wrong order will silently send traffic to the 
 **Emulator bypass for federated OAuth testing:** When `FIREBASE_AUTH_EMULATOR_HOST` is set and `NODE_ENV` is not `production`, both `GoogleAuthClient` and `AppleAuthClient` accept a base64-encoded JSON payload in place of a real token. Encode `{ "email": "test@example.com", "sub": "uid123", "name": "Test User" }` as base64 and pass it as the `idToken` to exercise the federated flow without real Google/Apple credentials.
 
 **Apple private relay fallback:** When a real Apple ID token does not include an `email` claim (users who chose to hide their email), `AppleAuthClient` synthesises a private relay address: `${sub}@privaterelay.appleid.com`. Downstream code that stores or compares emails must tolerate this format.
+
+**Apple Web OAuth flow (V2) â€" distinct from the mobile SDK flow above.** Web clients that cannot use the Apple SDK directly use a server-side CSRF-protected redirect flow:
+1. `GET /auth/apple/init` (public) â€" generates a CSRF state token and returns the full Apple authorisation URL. The frontend redirects the user there.
+2. `POST /auth/apple/callback` (public) â€" Apple POSTs the auth code (and `id_token`) here after user consent. Accepts both the raw Apple redirect and a JSON body when the frontend forwards the code itself. Exchanges the code for tokens and signs the user in.
+3. `POST /auth/apple/refresh` (authenticated, any role) â€" verify the Apple session is still active.
+4. `POST /auth/apple/revoke` (authenticated, any role) â€" revoke Apple tokens. **Required by Apple guidelines** when a user deletes their account â€" apps that miss this step fail App Store review.
+
+All four routes are proxied via the `/api/v1/auth` → auth-service gateway rule (no separate gateway entry needed).
 
 ### Clean Architecture Layers (per service)
 
@@ -539,7 +556,7 @@ When writing new use cases or Firestore repository methods that touch the `users
 
 ### Profile Photo Upload
 
-`POST /api/v1/me/avatar` â€” multipart `photo` field, `image/jpeg` or `image/png` only, max 2 MB. Handled entirely inside user-service (not storage-service): `UploadAvatarUseCase` saves to Firebase Storage under `avatars/{uid}.{ext}`, calls `file.makePublic()`, then stores the resulting public URL on the user document as `profilePhotoUrl`. The `handleAvatarUpload` multer middleware lives at `packages/user-service/src/http/middleware/avatarUpload.ts`. `multer` is a dependency of user-service and cell-service (report photo uploads); all other services do not use it.
+`POST /api/v1/me/avatar` â€” multipart `photo` field, `image/jpeg` or `image/png` only, max 2 MB. Handled entirely inside user-service (not storage-service): `UploadAvatarUseCase` saves to Firebase Storage under `avatars/{uid}.{ext}`, calls `file.makePublic()`, then stores the resulting public URL on the user document as `profilePhotoUrl`. The `handleAvatarUpload` multer middleware lives at `packages/user-service/src/http/middleware/avatarUpload.ts`. `multer` is a dependency of user-service (avatar), cell-service (report photos), and enrollment-service (qualification PDF upload); all other services do not use it.
 
 ### Storage: Download Authorization
 
@@ -564,6 +581,8 @@ pending â†’ approve()  â†’ approved â†’ withdraw() â†’ withd
 
 `POST /api/v1/admin/registrations/bulk-approve` accepts up to **100** registration IDs per call. Uses `Promise.allSettled` â€” partial success is possible; the response separates `approved[]` from `failed[{ id, reason }]`.
 
+**V2 enrollment aliases:** `GET /enrollments/mine` (student/leader/g12) and `POST /enrollments` (student/leader/g12) are V2 aliases for `GET /me/enrollments` and `POST /courses/:id/enroll`. Similarly, `GET /enrollments` and `POST /enrollments/:id/approve|reject` are V2 aliases for the admin enrollment paths without the `/admin/` prefix.
+
 **Enrollment rejection cooloff:** `ENROLLMENT_REJECTION_COOLOFF_HOURS` sets a mandatory waiting period before a student whose enrollment was rejected can re-enroll in the same course. A new enrollment attempt within the cooloff window returns 409 `ENROLLMENT_REJECTED_COOLOFF`.
 
 **Role Request (V2)** â€” tracks a member's request to be granted a non-member role (student, leader, g12):
@@ -571,7 +590,18 @@ pending â†’ approve()  â†’ approved â†’ withdraw() â†’ withd
 pending â†’ approve() â†’ approved
        â†’ reject()  â†’ rejected
 ```
-Endpoints: `POST /role-requests`, `GET /role-requests/mine`, `GET /role-requests` (admin), `POST /role-requests/:id/approve`, `POST /role-requests/:id/reject`. Creating a role request publishes `role.requested` to the outbox. Approval atomically grants the role on the user document via an internal call to user-service and publishes `role.granted` to the outbox. Neither event is currently wired in the outbox-worker's EventDispatcher.
+Endpoints:
+- `POST /role-requests` â€" `multipart/form-data` with required `qualificationFile` (PDF only, max 10 MB, field name `qualificationFile`). Parsed by `handleQualificationUpload` middleware before the controller. Returns 400 if no file, 413 if over size limit, 415 if not PDF.
+- `GET /role-requests/mine` â€" any authenticated user; returns own requests
+- `GET /role-requests` (admin) â€" list all pending/approved/rejected requests
+- `GET /role-requests/:id` (admin/super_admin) â€" get single role request detail
+- `GET /role-requests/:id/qualification` (admin/super_admin) â€" download the qualification PDF
+- `POST /role-requests/:id/approve` (admin) â€" approve and grant role
+- `POST /role-requests/:id/reject` (admin) â€" reject request
+
+Creating a role request publishes `role.requested` to the outbox. Approval atomically grants the role on the user document via an internal call to user-service and publishes `role.granted` to the outbox. Neither event is currently wired in the outbox-worker's EventDispatcher.
+
+`multer` is used by enrollment-service (qualification file), user-service (avatar upload), and cell-service (report photos). All other services do not use it.
 
 ### Course Lifecycle State Machine
 
@@ -672,6 +702,7 @@ Synchronous calls use `createInternalClient(serviceUrl, INTERNAL_SERVICE_KEY)`, 
 | storage-service | course-service | Verify subject exists before upload |
 | outbox-worker | user-service | Approve user account on `registration.approved` event |
 | enrollment-service | user-service | Grant role on `role_requests/:id/approve` via `POST /internal/users/add-role` (V2) |
+| user-service | auth-service | Verify federated token on `POST /me/providers/link` via `POST /internal/auth/verify-token` (V2) |
 | analytics-service | cell-service (Firestore direct) | Reads `cell_groups` and `cell_reports` â€” analytics-service is exempt from the cross-service HTTP rule (same as scheduled-jobs and outbox-worker background workers) |
 
 ### Repository Pagination Pattern
@@ -777,7 +808,7 @@ Two Jest configs exist in the repo. A third (`jest.e2e.config.ts`) is referenced
 
 **Firebase emulator ports** (from `firebase.json`): Auth `9099`, Firestore `8080`, Storage `9199`, UI `4000` (`http://localhost:4000`).
 
-**Postman:** Import `postman/CMP_Backend.postman_collection.json` (139 requests across 17 folders) with one of the two environment files:
+**Postman:** Import `postman/CMP_Backend.postman_collection.json` (164 requests across 17 folders) with one of the two environment files:
 
 | Environment file | `baseUrl` | `authBaseUrl` | `firebaseWebApiKey` |
 |-----------------|-----------|--------------|-------------------|
@@ -789,22 +820,22 @@ Two Jest configs exist in the repo. A third (`jest.e2e.config.ts`) is referenced
 | # | Folder | Requests |
 |---|--------|----------|
 | 0 | ðŸ” Sign In (**run first** â€” populates all `*Token` and `*Id` vars) | 6 |
-| 1 | 1ï¸âƒ£ Auth Service | 8 |
+| 1 | 1ï¸âƒ£ Auth Service | 12 |
 | 2 | 2ï¸âƒ£ User Service â€” Me | 10 |
-| 3 | 3ï¸âƒ£ User Service â€” Admin Manage Users | 14 |
+| 3 | 3ï¸âƒ£ User Service â€” Admin Manage Users | 20 |
 | 4 | 4ï¸âƒ£ User Service â€” Super Admin | 7 |
 | 5 | 5ï¸âƒ£ Course Service â€” Build a Course | 18 |
 | 6 | 6ï¸âƒ£ Batches (V2) | 6 |
-| 7 | 7ï¸âƒ£ Enrollment | 10 |
-| 8 | 8ï¸âƒ£ Role Requests (V2) | 5 |
+| 7 | 7ï¸âƒ£ Enrollment | 15 |
+| 8 | 8ï¸âƒ£ Role Requests (V2) | 8 |
 | 9 | 9ï¸âƒ£ Progress Service | 5 |
 | 10 | ðŸ”” Notifications | 4 |
-| 11 | ðŸ“Ž Storage Service | 3 |
+| 11 | ðŸ“Ž Storage Service | 4 |
 | 12 | ðŸ“‹ Audit Log | 3 |
 | 13 | âš¡ Course Lifecycle | 6 |
-| 14 | ðŸ˜ V2 â€” Cell Service (sub-folders: Member Search, Cell CRUD, Members, Join Requests, Cell Reports, Archive) | 18 |
-| 15 | ðŸ“Š V2 â€” Analytics Service | 6 |
-| 16 | ðŸ¥ Health Checks | 1 |
+| 14 | ðŸ˜ V2 â€” Cell Service (sub-folders: Member Search, Cell CRUD, Members, Join Requests, Cell Reports, Archive) | 19 |
+| 15 | ðŸ“Š V2 â€” Analytics Service | 10 |
+| 16 | ðŸ¥ Health Checks | 12 |
 
 **Collection-managed variables** (auto-set by test scripts, do not set manually): `superAdminToken`, `adminToken`, `leaderToken`, `g12Token`, `studentToken`, `student2Token`, `userId`, `student2Id`, `adminId`, `leaderId`, `g12Id`, `courseId`, `semesterId`, `subjectId`, `subjectId2`, `lessonId`, `batchId`, `enrollmentId`, `registrationId`, `roleRequestId`, `notificationId`, `attachmentId`, `cellId`, `joinRequestId`, `cellReportId`.
 
@@ -860,6 +891,19 @@ When reading a spec to implement a feature:
 - **Firestore Changes** lists any new composite indexes needed in `firestore.indexes.json`
 - **Domain Events** lists what the outbox must publish and who consumes it
 - **Out of Scope** tells you what NOT to build â€” do not add features listed there
+
+---
+
+## Known Gaps
+
+These items are intentionally incomplete. Do not assume they are implemented.
+
+| Item | Location | Notes |
+|------|----------|-------|
+| `@shared/i18n` package | `packages/shared/` | **Not created.** Do not import until scaffolded. Locale resolver + template renderer for `en`/`si`/`ta` was designed but never built. |
+| `jest.e2e.config.ts` | repo root | **Missing.** `npm run test:e2e` will fail until this config is created. E2E tests under `tests/e2e/` cannot run. |
+| `role.requested` / `role.granted` outbox events | `outbox-worker/src/EventDispatcher` | Published to `outbox` by enrollment-service but **not wired** in the dispatcher â€” silently skipped. No notify/audit coverage for role grants. |
+| `course.published` notification handler | `notification-service/src/application/handlers/` | Event fires and is delivered to notification-service but **no handler exists** â€” silently dropped. Students are not notified when a course is published. |
 
 ---
 

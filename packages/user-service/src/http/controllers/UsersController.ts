@@ -10,6 +10,7 @@ import { AddRoleUseCase }                 from '../../application/use-cases/AddR
 import { RemoveRoleUseCase }              from '../../application/use-cases/RemoveRoleUseCase';
 import { CreateUserDirectlyUseCase }      from '../../application/use-cases/CreateUserDirectlyUseCase';
 import { PromoteMemberUseCase }           from '../../application/use-cases/PromoteMemberUseCase';
+import { DeleteUserUseCase }              from '../../application/use-cases/DeleteUserUseCase';
 import { listUsersSchema, assignRoleSchema, createUserDirectlySchema, promoteMemberSchema } from '../validators/userValidator';
 import { TtlCache }                       from '../../infrastructure/cache/TtlCache';
 import { FindAllResult }                  from '../../domain/repositories/IUserRepository';
@@ -24,6 +25,7 @@ export class UsersController {
     private readonly removeRoleUseCase:         RemoveRoleUseCase,
     private readonly createUserDirectlyUseCase: CreateUserDirectlyUseCase,
     private readonly promoteMemberUseCase:      PromoteMemberUseCase,
+    private readonly deleteUserUseCase:         DeleteUserUseCase,
   ) {}
 
   private static readonly listCache = new TtlCache<FindAllResult>(30_000);
@@ -63,6 +65,16 @@ export class UsersController {
     try {
       const user = await this.reactivateUseCase.execute(req.params.uid);
       sendSuccess(res, user);
+    } catch (err) { next(err); }
+  };
+
+  // DELETE /users/:uid — admin soft-deletes a regular (non-admin) user
+  delete = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const callerUid = (req as AuthenticatedRequest).principal.uid;
+      await this.deleteUserUseCase.execute({ targetUid: req.params.uid, callerUid });
+      UsersController.listCache.clear();
+      res.status(204).send();
     } catch (err) { next(err); }
   };
 

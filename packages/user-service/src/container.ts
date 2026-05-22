@@ -19,6 +19,7 @@ import { AddRoleUseCase }               from './application/use-cases/AddRoleUse
 import { RemoveRoleUseCase }            from './application/use-cases/RemoveRoleUseCase';
 import { CreateUserDirectlyUseCase }    from './application/use-cases/CreateUserDirectlyUseCase';
 import { PromoteMemberUseCase }         from './application/use-cases/PromoteMemberUseCase';
+import { DeleteUserUseCase }           from './application/use-cases/DeleteUserUseCase';
 import { RegisterFcmTokenUseCase }              from './application/use-cases/RegisterFcmTokenUseCase';
 import { DeregisterFcmTokenUseCase }            from './application/use-cases/DeregisterFcmTokenUseCase';
 import { UpdateNotificationPreferencesUseCase } from './application/use-cases/UpdateNotificationPreferencesUseCase';
@@ -53,6 +54,7 @@ const addRole              = new AddRoleUseCase(userRepo, authClient);
 const removeRole           = new RemoveRoleUseCase(userRepo, authClient);
 const createUserDirectly   = new CreateUserDirectlyUseCase(userRepo, authClient, outbox);
 const promoteMember        = new PromoteMemberUseCase(userRepo, authClient, outbox);
+const deleteUser           = new DeleteUserUseCase(userRepo, authClient);
 const registerFcm      = new RegisterFcmTokenUseCase(userRepo);
 const deregisterFcm    = new DeregisterFcmTokenUseCase(userRepo);
 const updateNotifPrefs = new UpdateNotificationPreferencesUseCase(userRepo);
@@ -66,7 +68,7 @@ export const container = {
     registerFcm, deregisterFcm, updateNotifPrefs,
     linkProvider, unlinkProvider,
   ),
-  usersController:      new UsersController(getUsers, getUserById, suspendUser, reactivate, addRole, removeRole, createUserDirectly, promoteMember),
+  usersController:      new UsersController(getUsers, getUserById, suspendUser, reactivate, addRole, removeRole, createUserDirectly, promoteMember, deleteUser),
   superAdminController: new SuperAdminController(createAdmin, deleteAdmin, getUsers, getUserById, suspendUser, reactivate, promoteToAdmin),
   internalController:   new InternalController(checkEmail, approveUser, getUsers, addRole),
 };

@@ -1,13 +1,50 @@
-import { RoleRequest } from '../../../src/domain/entities/RoleRequest';
+import { RoleRequest, RoleRequestProps } from '../../../src/domain/entities/RoleRequest';
+
+const baseProps: RoleRequestProps = {
+  id:            'req-1',
+  requesterUid:  'uid-1',
+  requestedRole: 'student',
+  status:        'pending',
+  decidedByUid:  null,
+  decisionNote:  null,
+  createdAt:     '2026-01-01T00:00:00.000Z',
+  decidedAt:     null,
+  applicantProfile: {
+    firstName:   'John',
+    lastName:    'Doe',
+    phoneNumber: '+94771234567',
+    email:       'john@example.com',
+    dateOfBirth: '2000-06-15',
+    gender:      'male',
+    address:     '123 Main St, Colombo',
+  },
+  qualificationTitle:       'BSc Computer Science',
+  qualificationStoragePath: 'qualifications/uid-1/req-1.pdf',
+};
 
 const make = (status: 'pending' | 'approved' | 'rejected' = 'pending'): RoleRequest =>
-  new RoleRequest({
-    id: 'req-1', requesterUid: 'uid-1', requestedRole: 'student',
-    status, decidedByUid: null, decisionNote: null,
-    createdAt: '2026-01-01T00:00:00.000Z', decidedAt: null,
-  });
+  new RoleRequest({ ...baseProps, status });
 
 describe('RoleRequest entity', () => {
+  describe('constructor', () => {
+    it('stores all applicant profile fields', () => {
+      const r = make();
+      expect(r.applicantProfile.firstName).toBe('John');
+      expect(r.applicantProfile.lastName).toBe('Doe');
+      expect(r.applicantProfile.phoneNumber).toBe('+94771234567');
+      expect(r.applicantProfile.email).toBe('john@example.com');
+      expect(r.applicantProfile.dateOfBirth).toBe('2000-06-15');
+      expect(r.applicantProfile.gender).toBe('male');
+      expect(r.applicantProfile.address).toBe('123 Main St, Colombo');
+    });
+
+    it('stores qualification title and storage path', () => {
+      const r = make();
+      expect(r.qualificationTitle).toBe('BSc Computer Science');
+      expect(r.qualificationStoragePath).toBe('qualifications/uid-1/req-1.pdf');
+    });
+  });
+
   describe('approve()', () => {
     it('transitions PENDING → approved', () => {
       const r = make('pending');

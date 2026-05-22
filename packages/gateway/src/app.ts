@@ -17,7 +17,7 @@ app.use(helmet());
 app.use(cors({
   origin:  config.allowedOrigins,
   methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Authorization', 'Content-Type', 'X-Request-Id'],
+  allowedHeaders: ['Authorization', 'Content-Type', 'X-Request-Id', 'X-Idempotency-Key'],
 }));
 app.use(requestId);
 app.use(httpLogger);

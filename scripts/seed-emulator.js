@@ -79,8 +79,18 @@ async function deleteIfExists(email) {
   } catch (_) {}
 }
 
+// Accounts created by the Postman collection during Newman runs — clean them up
+// on re-seed so they don't cause 409 conflicts and break variable propagation.
+const COLLECTION_GENERATED_EMAILS = ['newadmin@tccr.lk', 'saman.leader@tccr.lk'];
+
 async function seed() {
   console.log('\nSeeding Firebase Auth + Firestore emulators…\n');
+
+  // Clean up any accounts the Postman collection created on previous runs
+  for (const email of COLLECTION_GENERATED_EMAILS) {
+    await deleteIfExists(email);
+  }
+
   const batch = db.batch();
   const now   = new Date().toISOString();
 
@@ -93,7 +103,9 @@ async function seed() {
       displayName: `${u.firstName} ${u.lastName}`,
     });
 
-    await auth.setCustomUserClaims(record.uid, { role: u.role, roles: [u.role] });
+    // V2: all users get 'member' as their base role in addition to their primary role
+    const v2Roles = u.role === 'member' ? ['member'] : ['member', u.role];
+    await auth.setCustomUserClaims(record.uid, { role: u.role, roles: v2Roles });
 
     // users collection (owned by user-service)
     batch.set(db.collection('users').doc(record.uid), {
@@ -101,7 +113,7 @@ async function seed() {
       firstName:       u.firstName,
       lastName:        u.lastName,
       role:            u.role,
-      roles:           [u.role],
+      roles:           v2Roles,
       status:          u.status,
       profilePhotoUrl: null,
       createdAt:       now,

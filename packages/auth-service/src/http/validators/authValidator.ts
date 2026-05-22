@@ -38,3 +38,11 @@ export const verifyTokenInternalSchema = z.object({
   provider: z.enum(['google', 'apple']),
   idToken:  z.string().min(1),
 });
+
+// Apple web OAuth callback — body is application/x-www-form-urlencoded sent by Apple
+// `user` is a JSON string sent by Apple ONLY on the user's first sign-in
+export const appleCallbackSchema = z.object({
+  code:  z.string().min(1, 'Authorization code is required.'),
+  state: z.string().optional(),
+  user:  z.string().optional(),
+});

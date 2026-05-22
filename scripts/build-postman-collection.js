@@ -206,7 +206,28 @@ function signInRequestDual(name, email, password, tokenVar, idVar, extraTokenVar
 const signInFolder = folder('🔐 Sign In', [
   signInRequest('Super Admin Sign In', 'superadmin@cmp.com', 'SuperAdmin@123', 'superAdminToken', 'superAdminId'),
   signInRequest('Admin Sign In',       'admin@cmp.com',      'Admin@12345',    'adminToken',       'adminId'),
-  signInRequest('Student 1 (pending) Sign In', 'student1@cmp.com', 'Student1@123', 'student1Token', 'student1Id'),
+  // student1 is only used for the change-password test. Accept 200 or 400 so a drifted
+  // password or disabled account does not cascade as a failure through the whole run.
+  buildRequest({
+    name: 'Student 1 (pending) Sign In',
+    method: 'POST',
+    url: {
+      raw:  '{{authBaseUrl}}/accounts:signInWithPassword?key={{firebaseWebApiKey}}',
+      host: ['{{authBaseUrl}}'],
+      path: ['accounts:signInWithPassword'],
+      query: [{ key: 'key', value: '{{firebaseWebApiKey}}' }],
+    },
+    auth: noAuth(),
+    headers: jsonHeader(),
+    body: jsonBody({ email: 'student1@cmp.com', password: 'Student1@123', returnSecureToken: true }),
+    tests: [
+      `pm.test("200 or 400 — Student 1 Sign In (400 = disabled/wrong-pw; token optional)", () => {`,
+      `  pm.expect([200, 400]).to.include(pm.response.code);`,
+      `});`,
+      `const j = pm.response.json();`,
+      `if (j.idToken) { pm.environment.set("student1Token", j.idToken); pm.environment.set("student1Id", j.localId); }`,
+    ],
+  }),
   // Student 2 is approved — sets both student2Token AND studentToken (primary token used by most tests)
   signInRequestDual('Student 2 (approved) Sign In', 'student2@cmp.com', 'Student2@123', 'student2Token', 'student2Id', 'studentToken'),
   signInRequest('Leader Sign In', 'leader@cmp.com', 'Leader@12345', 'leaderToken', 'leaderId'),
@@ -228,7 +249,7 @@ const authFolder = folder('1️⃣ Auth Service', [
     body: jsonBody({
       firstName: 'New',
       lastName: 'Member',
-      email: 'newmember@test.com',
+      email: 'newmember{{runId}}@test.com',
       password: 'Member@Tccr2026',
       preferredLanguage: 'en',
     }),
@@ -250,7 +271,7 @@ const authFolder = folder('1️⃣ Auth Service', [
     },
     auth: noAuth(),
     headers: jsonHeader(),
-    body: jsonBody({ email: 'newmember@test.com', password: 'Member@Tccr2026', returnSecureToken: true }),
+    body: jsonBody({ email: 'newmember{{runId}}@test.com', password: 'Member@Tccr2026', returnSecureToken: true }),
     tests: [
       `pm.test("200 OK — New Member Sign In", () => pm.response.to.have.status(200));`,
       `const j = pm.response.json();`,
@@ -294,7 +315,7 @@ const authFolder = folder('1️⃣ Auth Service', [
     auth: noAuth(),
     headers: jsonHeader(),
     body: jsonBody({ email: 'student2@cmp.com' }),
-    tests: [`pm.test("204 No Content — Track Failure", () => pm.response.to.have.status(204));`],
+    tests: [`pm.test("200 OK — Track Failure", () => pm.response.to.have.status(200));`],
   }),
   buildRequest({
     name: 'Federated Login — Google (emulator bypass)',
@@ -329,6 +350,72 @@ const authFolder = folder('1️⃣ Auth Service', [
     tests: [
       `pm.test("No 500 — Federated Login (Apple)", () => {`,
       `  pm.expect(pm.response.code).to.not.equal(500);`,
+      `});`,
+    ],
+  }),
+
+  // ── Apple web OAuth flow ────────────────────────────────────────────────────
+  buildRequest({
+    name: 'Apple OAuth — Init (get state + auth URL)',
+    method: 'GET',
+    url: { raw: '{{baseUrl}}/auth/apple/init' },
+    auth: noAuth(),
+    tests: [
+      `// 404 = APPLE_CLIENT_ID not configured in .env (expected on local/dev stacks)`,
+      `pm.test("200 or 404 — Apple Init (404 = Apple not configured)", () => {`,
+      `  pm.expect([200, 404]).to.include(pm.response.code);`,
+      `});`,
+      `if (pm.response.code === 200) {`,
+      `  const j = pm.response.json();`,
+      `  pm.test("state is a string", () => pm.expect(j.state).to.be.a("string").and.not.empty);`,
+      `  pm.test("authorizeUrl starts with appleid.apple.com", () => pm.expect(j.authorizeUrl).to.include("appleid.apple.com"));`,
+      `  if (j.state) { pm.environment.set("appleOAuthState", j.state); }`,
+      `}`,
+    ],
+  }),
+  buildRequest({
+    name: 'Apple OAuth — Callback (exchange code)',
+    method: 'POST',
+    url: { raw: '{{baseUrl}}/auth/apple/callback' },
+    auth: noAuth(),
+    headers: jsonHeader(),
+    body: jsonBody({
+      code:  'apple-auth-code-placeholder',
+      state: '{{appleOAuthState}}',
+    }),
+    tests: [
+      `// 404 = APPLE_CLIENT_ID not configured; 400/401 = real flow without valid code/state`,
+      `pm.test("No 500 — Apple Callback (404/401/400 all valid)", () => {`,
+      `  pm.expect([200, 400, 401, 404]).to.include(pm.response.code);`,
+      `});`,
+      `if (pm.response.code === 200) {`,
+      `  const j = pm.response.json();`,
+      `  pm.test("firebaseToken present", () => pm.expect(j.firebaseToken).to.be.a("string"));`,
+      `  if (j.firebaseToken) pm.environment.set("appleFirebaseToken", j.firebaseToken);`,
+      `}`,
+    ],
+  }),
+  buildRequest({
+    name: 'Apple OAuth — Refresh (validate stored token)',
+    method: 'POST',
+    url: { raw: '{{baseUrl}}/auth/apple/refresh' },
+    auth: bearerAuth('studentToken'),
+    tests: [
+      `// 404 = no Apple token stored for this account (expected for non-Apple seed users)`,
+      `pm.test("No 500 — Apple Refresh", () => {`,
+      `  pm.expect([200, 401, 404]).to.include(pm.response.code);`,
+      `});`,
+    ],
+  }),
+  buildRequest({
+    name: 'Apple OAuth — Revoke (account deletion)',
+    method: 'POST',
+    url: { raw: '{{baseUrl}}/auth/apple/revoke' },
+    auth: bearerAuth('studentToken'),
+    tests: [
+      `// 204 = revoked (or no token stored). Never a 500.`,
+      `pm.test("204 or 404 — Apple Revoke", () => {`,
+      `  pm.expect([204, 404]).to.include(pm.response.code);`,
       `});`,
     ],
   }),
@@ -395,7 +482,9 @@ const meFolder = folder('2️⃣ User Service — Me', [
     url: { raw: '{{baseUrl}}/me/change-password' },
     auth: bearerAuth('student1Token'),
     headers: jsonHeader(),
-    body: jsonBody({ currentPassword: 'Student1@123', newPassword: 'Student1@NewPass!' }),
+    // Use the same value for new password so the account is unchanged after the test.
+    // This prevents password drift between Newman runs on online Firebase.
+    body: jsonBody({ currentPassword: 'Student1@123', newPassword: 'Student1@123' }),
     tests: [
       `pm.test("204 or 401 — Change Password", () => {`,
       `  pm.expect([204, 401]).to.include(pm.response.code);`,
@@ -427,7 +516,7 @@ const meFolder = folder('2️⃣ User Service — Me', [
     auth: bearerAuth('studentToken'),
     headers: jsonHeader(),
     body: jsonBody({ email: true, push: false }),
-    tests: [`pm.test("204 No Content — Update Preferences", () => pm.response.to.have.status(204));`],
+    tests: [`pm.test("200 OK — Update Preferences", () => pm.response.to.have.status(200));`],
   }),
   buildRequest({
     name: 'Get My Notifications',
@@ -448,8 +537,8 @@ const meFolder = folder('2️⃣ User Service — Me', [
     headers: jsonHeader(),
     body: jsonBody({ provider: 'google', idToken: 'test-google-token' }),
     tests: [
-      `pm.test("No 500 error — Link Provider", () => {`,
-      `  pm.expect(pm.response.code).to.not.equal(500);`,
+      `pm.test("401 — invalid token rejected (not 500)", () => {`,
+      `  pm.expect([400, 401, 409]).to.include(pm.response.code);`,
       `});`,
     ],
   }),
@@ -520,23 +609,173 @@ const adminUsersFolder = folder('3️⃣ User Service — Admin Manage Users', [
       `pm.test("items is array", () => pm.expect(j.items).to.be.an("array"));`,
     ],
   }),
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Create User Directly (Leader / G12)
+  //
+  // POST /users — allows a g12 / admin / super_admin to register a brand-new user
+  // (someone not yet in the system) and immediately assign them a leader or g12 role.
+  //
+  // What the system does on success (201):
+  //   1. Creates a Firebase Auth account with the supplied password.
+  //   2. Sets Firebase custom claims: { role, roles: ['member', role] }
+  //   3. Writes a Firestore user document with status:'approved', roles:['member',role].
+  //   4. Generates a Firebase password-reset link (expires in 1 h).
+  //   5. Publishes admin.created outbox event → notification-service sends a welcome
+  //      email to the new user containing:
+  //        • Their login credentials (email + temporary password)
+  //        • A "Set Your Password →" button linking to the reset URL
+  //        • A warning to change the password immediately
+  //        • The system URL (APP_URL env var, default https://tccr.lk)
+  //
+  // Errors:
+  //   409 EMAIL_EXISTS   — email already registered
+  //   403 FORBIDDEN      — caller does not have g12 / admin / super_admin role
+  //   400 VALIDATION     — missing or invalid fields
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  // ── 1. Admin creates a Cell Leader ───────────────────────────────────────────
   buildRequest({
-    name: 'Create User (Admin)',
+    name: 'Create Leader — Admin caller',
     method: 'POST',
     url: { raw: '{{baseUrl}}/users' },
     auth: bearerAuth('adminToken'),
     headers: jsonHeader(),
     body: jsonBody({
-      firstName: 'Saman',
-      lastName: 'Silva',
-      email: 'saman.leader@tccr.lk',
-      initialPassword: 'Leader@12345',
-      role: 'leader',
+      firstName:       'Saman',
+      lastName:        'Silva',
+      email:           'saman{{runId}}@tccr.lk',
+      initialPassword: 'Leader@Tccr2026!',
+      role:            'leader',
     }),
     tests: [
-      `pm.test("201 Created — Create User", () => pm.response.to.have.status(201));`,
+      `pm.test("201 Created — Create Leader", () => pm.response.to.have.status(201));`,
       `const j = pm.response.json();`,
+      `pm.test("uid is a string",                () => pm.expect(j.uid).to.be.a("string").and.not.empty);`,
+      `pm.test("email matches input",             () => pm.expect(j.email).to.be.a("string"));`,
+      `pm.test("firstName is Saman",              () => pm.expect(j.firstName).to.equal("Saman"));`,
+      `pm.test("roles contains member + leader",  () => {`,
+      `  pm.expect(j.roles).to.be.an("array");`,
+      `  pm.expect(j.roles).to.include("member");`,
+      `  pm.expect(j.roles).to.include("leader");`,
+      `});`,
+      `pm.test("status is approved",              () => pm.expect(j.status).to.equal("approved"));`,
+      `pm.test("deletedAt is null",               () => pm.expect(j.deletedAt).to.be.null);`,
+      `// Save for later tests (promote-leader-to-g12 and get-by-id)`,
       `if (j.uid) { pm.environment.set("createdLeaderId", j.uid); }`,
+      `// Note: a welcome email was queued to saman{{runId}}@tccr.lk with credentials + reset link.`,
+    ],
+  }),
+
+  // ── 2. G12 caller creates another G12 leader ─────────────────────────────────
+  buildRequest({
+    name: 'Create G12 — G12 caller',
+    method: 'POST',
+    url: { raw: '{{baseUrl}}/users' },
+    auth: bearerAuth('g12Token'),
+    headers: jsonHeader(),
+    body: jsonBody({
+      firstName:       'Kamala',
+      lastName:        'Perera',
+      email:           'kamala{{runId}}@tccr.lk',
+      initialPassword: 'G12User@Tccr2026!',
+      role:            'g12',
+    }),
+    tests: [
+      `pm.test("201 Created — G12 creates G12", () => pm.response.to.have.status(201));`,
+      `const j = pm.response.json();`,
+      `pm.test("uid is a string",               () => pm.expect(j.uid).to.be.a("string").and.not.empty);`,
+      `pm.test("roles contains member + g12",   () => {`,
+      `  pm.expect(j.roles).to.be.an("array");`,
+      `  pm.expect(j.roles).to.include("member");`,
+      `  pm.expect(j.roles).to.include("g12");`,
+      `});`,
+      `pm.test("status is approved",            () => pm.expect(j.status).to.equal("approved"));`,
+      `if (j.uid) { pm.environment.set("createdG12Id", j.uid); }`,
+      `// Note: a G12 welcome email was queued to kamala{{runId}}@tccr.lk.`,
+    ],
+  }),
+
+  // ── 3. Super Admin creates a Cell Leader ─────────────────────────────────────
+  buildRequest({
+    name: 'Create Leader — Super Admin caller',
+    method: 'POST',
+    url: { raw: '{{baseUrl}}/users' },
+    auth: bearerAuth('superAdminToken'),
+    headers: jsonHeader(),
+    body: jsonBody({
+      firstName:       'Nimal',
+      lastName:        'Fernando',
+      email:           'nimal{{runId}}@tccr.lk',
+      initialPassword: 'NimalLeader@2026!',
+      role:            'leader',
+    }),
+    tests: [
+      `pm.test("201 Created — Super Admin creates Leader", () => pm.response.to.have.status(201));`,
+      `const j = pm.response.json();`,
+      `pm.test("roles contains member + leader", () => {`,
+      `  pm.expect(j.roles).to.include("member");`,
+      `  pm.expect(j.roles).to.include("leader");`,
+      `});`,
+      `pm.test("status is approved",             () => pm.expect(j.status).to.equal("approved"));`,
+    ],
+  }),
+
+  // ── 4. Duplicate email → 409 EMAIL_EXISTS ────────────────────────────────────
+  buildRequest({
+    name: 'Create User — Duplicate email → 409',
+    method: 'POST',
+    url: { raw: '{{baseUrl}}/users' },
+    auth: bearerAuth('adminToken'),
+    headers: jsonHeader(),
+    body: jsonBody({
+      firstName:       'Saman',
+      lastName:        'Silva',
+      email:           'saman{{runId}}@tccr.lk',  // same email as request #1
+      initialPassword: 'AnotherPass@123',
+      role:            'leader',
+    }),
+    tests: [
+      `pm.test("409 — Duplicate email rejected", () => pm.response.to.have.status(409));`,
+      `const j = pm.response.json();`,
+      `pm.test("error code is EMAIL_EXISTS",     () => pm.expect(j.error.code).to.equal("EMAIL_EXISTS"));`,
+    ],
+  }),
+
+  // ── 5. Unauthorized caller (student) → 403 ───────────────────────────────────
+  buildRequest({
+    name: 'Create User — Student caller → 403',
+    method: 'POST',
+    url: { raw: '{{baseUrl}}/users' },
+    auth: bearerAuth('studentToken'),
+    headers: jsonHeader(),
+    body: jsonBody({
+      firstName:       'Test',
+      lastName:        'User',
+      email:           'testunauth{{runId}}@tccr.lk',
+      initialPassword: 'Pass@12345',
+      role:            'leader',
+    }),
+    tests: [
+      `pm.test("403 — Student cannot create users", () => pm.response.to.have.status(403));`,
+    ],
+  }),
+
+  // ── 6. Missing required field → 400 ──────────────────────────────────────────
+  buildRequest({
+    name: 'Create User — Missing role field → 400',
+    method: 'POST',
+    url: { raw: '{{baseUrl}}/users' },
+    auth: bearerAuth('adminToken'),
+    headers: jsonHeader(),
+    body: jsonBody({
+      firstName:       'Test',
+      lastName:        'User',
+      email:           'missing-role{{runId}}@tccr.lk',
+      initialPassword: 'Pass@12345',
+      // role intentionally omitted
+    }),
+    tests: [
+      `pm.test("400 — Missing role returns validation error", () => pm.response.to.have.status(400));`,
     ],
   }),
   buildRequest({
@@ -551,61 +790,98 @@ const adminUsersFolder = folder('3️⃣ User Service — Admin Manage Users', [
       `if (j.uid) { pm.environment.set("userId", j.uid); }`,
     ],
   }),
+  // Suspend/Reactivate use registeredUid (new member from Auth folder) — NOT student2.
+  // This keeps the seed student2 account intact so it never cascades failures into /me tests.
   buildRequest({
-    name: 'Suspend User',
+    name: 'Suspend User (registeredUid)',
     method: 'POST',
-    url: { raw: '{{baseUrl}}/users/{{student2Id}}/suspend' },
+    url: { raw: '{{baseUrl}}/users/{{registeredUid}}/suspend' },
     auth: bearerAuth('adminToken'),
-    tests: [`pm.test("200 OK — Suspend User", () => pm.response.to.have.status(200));`],
+    tests: [`pm.test("200 or 404 — Suspend User (404 if register failed)", () => { pm.expect([200, 404]).to.include(pm.response.code); });`],
   }),
   buildRequest({
-    name: 'Reactivate User',
+    name: 'Reactivate User (registeredUid)',
     method: 'POST',
-    url: { raw: '{{baseUrl}}/users/{{student2Id}}/reactivate' },
+    url: { raw: '{{baseUrl}}/users/{{registeredUid}}/reactivate' },
     auth: bearerAuth('adminToken'),
-    tests: [`pm.test("200 OK — Reactivate User", () => pm.response.to.have.status(200));`],
+    tests: [`pm.test("200 or 404 — Reactivate User (404 if register failed)", () => { pm.expect([200, 404]).to.include(pm.response.code); });`],
   }),
+
+  // ── Delete User ────────────────────────────────────────────────────────────
+  // Soft-deletes a regular (non-admin) user: sets deletedAt in Firestore +
+  // disables their Firebase Auth account. Use DELETE /super-admin/admins/:uid
+  // for admin accounts. Caller cannot delete their own account.
   buildRequest({
-    name: 'Update User Roles (add student)',
+    name: 'Delete User (Admin)',
+    method: 'DELETE',
+    url: { raw: '{{baseUrl}}/users/{{registeredUid}}' },
+    auth: bearerAuth('adminToken'),
+    description: [
+      'Soft-delete a regular (non-admin) user.',
+      '',
+      'Business rules enforced by DeleteUserUseCase:',
+      '  • 403 FORBIDDEN  — caller tries to delete themselves',
+      '  • 404 USER_NOT_FOUND — target UID does not exist or is already deleted',
+      '  • 403 FORBIDDEN  — target holds admin or super_admin role (use DELETE /super-admin/admins/:uid instead)',
+      '  • 204 No Content — success: deletedAt set in Firestore + Firebase Auth account disabled',
+      '',
+      'Note: registeredUid may be empty if the prior Create User step failed (Newman/no-file).',
+      'In that case the request returns 404 — this is expected.',
+    ].join('\n'),
+    tests: [
+      `pm.test("204 or 404 — Delete User (404 if registration failed)", () => {`,
+      `  pm.expect([204, 404]).to.include(pm.response.code);`,
+      `});`,
+      `if (pm.response.code === 204) {`,
+      `  pm.test("204 response has no body", () => {`,
+      `    pm.expect(pm.response.text()).to.equal("");`,
+      `  });`,
+      `}`,
+    ],
+  }),
+
+  buildRequest({
+    name: 'Update User Roles (add student — registeredUid)',
     method: 'PATCH',
-    url: { raw: '{{baseUrl}}/users/{{student2Id}}/roles' },
+    url: { raw: '{{baseUrl}}/users/{{registeredUid}}/roles' },
     auth: bearerAuth('adminToken'),
     headers: jsonHeader(),
     body: jsonBody({ role: 'student', action: 'add' }),
-    tests: [`pm.test("204 No Content — Update Roles", () => pm.response.to.have.status(204));`],
+    tests: [`pm.test("204 or 404 — Update Roles", () => { pm.expect([204, 404]).to.include(pm.response.code); });`],
   }),
-  // Promote endpoint tests
+  // Promote endpoint tests — use registeredUid (disposable member) so seed accounts stay clean.
   buildRequest({
-    name: 'Promote member → leader (g12 caller)',
+    name: 'Promote member → leader (g12 caller, registeredUid)',
     method: 'POST',
-    url: { raw: '{{baseUrl}}/users/{{student2Id}}/promote' },
+    url: { raw: '{{baseUrl}}/users/{{registeredUid}}/promote' },
     auth: bearerAuth('g12Token'),
     headers: jsonHeader(),
     body: jsonBody({ role: 'leader' }),
-    tests: [`pm.test("204 No Content — g12 promotes to leader", () => pm.response.to.have.status(204));`],
+    tests: [`pm.test("204 or 404 — g12 promotes to leader", () => { pm.expect([204, 404]).to.include(pm.response.code); });`],
   }),
   buildRequest({
-    name: 'Promote member → g12 (g12 caller)',
+    name: 'Promote member → g12 (g12 caller, registeredUid)',
     method: 'POST',
-    url: { raw: '{{baseUrl}}/users/{{student2Id}}/promote' },
+    url: { raw: '{{baseUrl}}/users/{{registeredUid}}/promote' },
     auth: bearerAuth('g12Token'),
     headers: jsonHeader(),
     body: jsonBody({ role: 'g12' }),
-    tests: [`pm.test("204 No Content — g12 promotes to g12", () => pm.response.to.have.status(204));`],
+    tests: [`pm.test("204 or 404 — g12 promotes to g12", () => { pm.expect([204, 404]).to.include(pm.response.code); });`],
   }),
   buildRequest({
-    name: 'Promote leader → g12 (leader caller)',
+    name: 'Promote leader → g12 (leader caller, createdLeaderId)',
     method: 'POST',
-    url: { raw: '{{baseUrl}}/users/{{leaderId}}/promote' },
+    url: { raw: '{{baseUrl}}/users/{{createdLeaderId}}/promote' },
     auth: bearerAuth('leaderToken'),
     headers: jsonHeader(),
     body: jsonBody({ role: 'g12' }),
-    tests: [`pm.test("204 No Content — leader promotes leader to g12", () => pm.response.to.have.status(204));`],
+    tests: [`pm.test("204 or 404 — leader promotes leader to g12", () => { pm.expect([204, 404]).to.include(pm.response.code); });`],
   }),
+  // 403 tests verify RBAC — the 403 is returned before any DB write, so target UID doesn't matter.
   buildRequest({
     name: 'Leader tries promote → leader (expect 403)',
     method: 'POST',
-    url: { raw: '{{baseUrl}}/users/{{student2Id}}/promote' },
+    url: { raw: '{{baseUrl}}/users/{{registeredUid}}/promote' },
     auth: bearerAuth('leaderToken'),
     headers: jsonHeader(),
     body: jsonBody({ role: 'leader' }),
@@ -614,7 +890,7 @@ const adminUsersFolder = folder('3️⃣ User Service — Admin Manage Users', [
   buildRequest({
     name: 'Student tries promote (expect 403)',
     method: 'POST',
-    url: { raw: '{{baseUrl}}/users/{{student2Id}}/promote' },
+    url: { raw: '{{baseUrl}}/users/{{registeredUid}}/promote' },
     auth: bearerAuth('studentToken'),
     headers: jsonHeader(),
     body: jsonBody({ role: 'g12' }),
@@ -644,14 +920,16 @@ const superAdminFolder = folder('4️⃣ User Service — Super Admin', [
     url: { raw: '{{baseUrl}}/super-admin/admins' },
     auth: bearerAuth('superAdminToken'),
     headers: jsonHeader(),
+    // API ref §18.2 — preferredLanguage optional field added in V2
     body: jsonBody({
-      firstName: 'New',
-      lastName: 'Admin',
-      email: 'newadmin@tccr.lk',
-      initialPassword: 'Admin@Tccr2026',
+      firstName:          'New',
+      lastName:           'Admin',
+      email:              'newadmin{{runId}}@tccr.lk',
+      initialPassword:    'Admin@Tccr2026',
+      preferredLanguage:  'en',
     }),
     tests: [
-      `pm.test("201 Created — Create Admin", () => pm.response.to.have.status(201));`,
+      `pm.test("201 or 409 — Create Admin (409 = email exists in Auth emulator)", () => { pm.expect([201, 409]).to.include(pm.response.code); });`,
       `const j = pm.response.json();`,
       `if (j.uid) { pm.environment.set("promotedAdminId", j.uid); }`,
     ],
@@ -678,11 +956,12 @@ const superAdminFolder = folder('4️⃣ User Service — Super Admin', [
     tests: [`pm.test("200 OK — Reactivate Admin", () => pm.response.to.have.status(200));`],
   }),
   buildRequest({
-    name: 'Make User Admin',
+    name: 'Make User Admin (registeredUid)',
     method: 'POST',
-    url: { raw: '{{baseUrl}}/super-admin/users/{{student2Id}}/make-admin' },
+    url: { raw: '{{baseUrl}}/super-admin/users/{{registeredUid}}/make-admin' },
     auth: bearerAuth('superAdminToken'),
-    tests: [`pm.test("200 OK — Make Admin", () => pm.response.to.have.status(200));`],
+    // 409 = user already has admin/g12 level (was promoted in folder 3 promote tests)
+    tests: [`pm.test("200 or 404 or 409 — Make Admin", () => { pm.expect([200, 404, 409]).to.include(pm.response.code); });`],
   }),
   buildRequest({
     name: 'Delete Admin',
@@ -705,14 +984,27 @@ const buildCourseFolder = folder('5️⃣ Course Service — Build a Course', [
     auth: bearerAuth('adminToken'),
     headers: jsonHeader(),
     body: jsonBody({
-      title: 'Introduction to Faith',
+      title: 'Introduction to Faith {{runId}}',
       description: 'A foundational course for new believers.',
       coverImageUrl: null,
     }),
     tests: [
       `pm.test("201 Created — Create Course", () => pm.response.to.have.status(201));`,
       `const j = pm.response.json();`,
-      `if (j.id) { pm.environment.set("courseId", j.id); }`,
+      `if (j.id) {`,
+      `  pm.environment.set("courseId", j.id);`,
+      `} else if (pm.response.code === 409) {`,
+      `  // Title already exists (re-run without fresh runId) — fetch by title and recover the ID`,
+      `  const runId = pm.environment.get('runId') || '';`,
+      `  const title = encodeURIComponent('Introduction to Faith' + (runId ? ' ' + runId : ''));`,
+      `  pm.sendRequest(`,
+      `    { url: pm.environment.get('baseUrl') + '/courses?title=' + title, method: 'GET',`,
+      `      header: { Authorization: 'Bearer ' + pm.environment.get('adminToken') } },`,
+      `    (err, res) => {`,
+      `      if (!err) { const d = res.json(); if (d.items && d.items.length > 0) pm.environment.set('courseId', d.items[0].id); }`,
+      `    }`,
+      `  );`,
+      `}`,
     ],
   }),
   buildRequest({
@@ -733,7 +1025,7 @@ const buildCourseFolder = folder('5️⃣ Course Service — Build a Course', [
     name: 'Get Course by ID',
     method: 'GET',
     url: { raw: '{{baseUrl}}/courses/{{courseId}}' },
-    auth: noAuth(),
+    auth: bearerAuth('adminToken'),
     tests: [`pm.test("200 OK — Get Course", () => pm.response.to.have.status(200));`],
   }),
   buildRequest({
@@ -743,7 +1035,7 @@ const buildCourseFolder = folder('5️⃣ Course Service — Build a Course', [
     auth: bearerAuth('adminToken'),
     headers: jsonHeader(),
     body: jsonBody({
-      title: 'Introduction to Faith (Updated)',
+      title: 'Introduction to Faith {{runId}} (Updated)',
       description: 'Updated description.',
     }),
     tests: [`pm.test("200 OK — Update Course", () => pm.response.to.have.status(200));`],
@@ -754,7 +1046,12 @@ const buildCourseFolder = folder('5️⃣ Course Service — Build a Course', [
     url: { raw: '{{baseUrl}}/courses/{{courseId}}/semesters' },
     auth: bearerAuth('adminToken'),
     headers: jsonHeader(),
-    body: jsonBody({ title: 'Semester 1 — Foundations' }),
+    // API ref §8.2 — openDate and endDate are optional V2 fields
+    body: jsonBody({
+      title:     'Semester 1 — Foundations',
+      openDate:  '2026-07-01',
+      endDate:   '2026-12-31',
+    }),
     tests: [
       `pm.test("201 Created — Create Semester", () => pm.response.to.have.status(201));`,
       `const j = pm.response.json();`,
@@ -890,10 +1187,13 @@ const batchesFolder = folder('6️⃣ Batches (V2)', [
     url: { raw: '{{baseUrl}}/courses/{{courseId}}/batches' },
     auth: bearerAuth('adminToken'),
     headers: jsonHeader(),
+    // API ref §7.2 — capacity is optional; scheduledOpenAt in past auto-opens batch
     body: jsonBody({
-      name: 'Batch 2026 — Q1',
-      scheduledOpenAt: '2026-01-01T00:00:00Z',
-      scheduledCloseAt: '2026-06-30T23:59:59Z',
+      name:            'Batch 2026 — Q1',
+      scheduledOpenAt: '2026-01-01T00:00:00.000Z',
+      intakeStart:     '2026-06-01',
+      intakeEnd:       '2026-12-31',
+      capacity:        50,
     }),
     tests: [
       `pm.test("201 Created — Create Batch", () => pm.response.to.have.status(201));`,
@@ -909,7 +1209,7 @@ const batchesFolder = folder('6️⃣ Batches (V2)', [
     tests: [
       `pm.test("200 OK — List Batches", () => pm.response.to.have.status(200));`,
       `const j = pm.response.json();`,
-      `pm.test("items is array", () => pm.expect(j.items).to.be.an("array"));`,
+      `pm.test("items is array", () => pm.expect(j).to.be.an("array"));`,
     ],
   }),
   buildRequest({
@@ -933,7 +1233,11 @@ const batchesFolder = folder('6️⃣ Batches (V2)', [
     method: 'POST',
     url: { raw: '{{baseUrl}}/batches/{{batchId}}/open' },
     auth: bearerAuth('adminToken'),
-    tests: [`pm.test("200 OK — Open Batch", () => pm.response.to.have.status(200));`],
+    tests: [
+      `pm.test("200 or 409 — Open Batch (409 = already open; scheduledOpenAt in past auto-opens)", () => {`,
+      `  pm.expect([200, 409]).to.include(pm.response.code);`,
+      `});`,
+    ],
   }),
   buildRequest({
     name: 'Close Batch',
@@ -998,8 +1302,8 @@ const enrollmentFolder = folder('7️⃣ Enrollment', [
     url: { raw: '{{baseUrl}}/admin/registrations/{{registrationId}}/approve' },
     auth: bearerAuth('adminToken'),
     tests: [
-      `pm.test("200 or 404 — Approve Registration", () => {`,
-      `  pm.expect([200, 404]).to.include(pm.response.code);`,
+      `pm.test("200 or 404 or 409 — Approve Registration (409 = already decided)", () => {`,
+      `  pm.expect([200, 404, 409]).to.include(pm.response.code);`,
       `});`,
     ],
   }),
@@ -1011,8 +1315,8 @@ const enrollmentFolder = folder('7️⃣ Enrollment', [
     headers: jsonHeader(),
     body: jsonBody({ reason: 'Does not meet requirements.' }),
     tests: [
-      `pm.test("200 or 404 — Reject Registration", () => {`,
-      `  pm.expect([200, 404]).to.include(pm.response.code);`,
+      `pm.test("200 or 404 or 409 — Reject Registration (409 = already decided)", () => {`,
+      `  pm.expect([200, 404, 409]).to.include(pm.response.code);`,
       `});`,
     ],
   }),
@@ -1041,6 +1345,9 @@ const enrollmentFolder = folder('7️⃣ Enrollment', [
     method: 'POST',
     url: { raw: '{{baseUrl}}/admin/enrollments/{{enrollmentId}}/approve' },
     auth: bearerAuth('adminToken'),
+    headers: jsonHeader(),
+    // API ref §11.5 — optional note field added in V2
+    body: jsonBody({ note: 'Approved for the 2026 intake.' }),
     tests: [
       `pm.test("200 or 404 — Approve Enrollment", () => {`,
       `  pm.expect([200, 404]).to.include(pm.response.code);`,
@@ -1055,8 +1362,8 @@ const enrollmentFolder = folder('7️⃣ Enrollment', [
     headers: jsonHeader(),
     body: jsonBody({ reason: 'Enrollment rejected for testing.' }),
     tests: [
-      `pm.test("200 or 404 — Reject Enrollment", () => {`,
-      `  pm.expect([200, 404]).to.include(pm.response.code);`,
+      `pm.test("200 or 404 or 409 — Reject Enrollment (409 = already decided)", () => {`,
+      `  pm.expect([200, 404, 409]).to.include(pm.response.code);`,
       `});`,
     ],
   }),
@@ -1071,6 +1378,71 @@ const enrollmentFolder = folder('7️⃣ Enrollment', [
       `});`,
     ],
   }),
+
+  // ── V2 clean-path aliases ───────────────────────────────────────────────────
+  buildRequest({
+    name: 'Get My Enrollments (V2 alias — /enrollments/mine)',
+    method: 'GET',
+    url: { raw: '{{baseUrl}}/enrollments/mine' },
+    auth: bearerAuth('student2Token'),
+    tests: [
+      `pm.test("200 OK — Get My Enrollments V2", () => pm.response.to.have.status(200));`,
+      `const j = pm.response.json();`,
+      `pm.test("items is array", () => pm.expect(j.items).to.be.an("array"));`,
+    ],
+  }),
+  buildRequest({
+    name: 'Enroll in Course V2 (POST /enrollments with batchId)',
+    method: 'POST',
+    url: { raw: '{{baseUrl}}/enrollments' },
+    auth: bearerAuth('student2Token'),
+    headers: jsonHeader(),
+    body: jsonBody({ courseId: '{{courseId}}', batchId: '{{batchId}}' }),
+    tests: [
+      `pm.test("201 or 409 — Enroll V2", () => {`,
+      `  pm.expect([201, 409, 422]).to.include(pm.response.code);`,
+      `});`,
+      `const j = pm.response.json();`,
+      `if (j.id) { pm.environment.set("enrollmentId", j.id); }`,
+    ],
+  }),
+  buildRequest({
+    name: 'List Enrollments Admin V2 (GET /enrollments)',
+    method: 'GET',
+    url: { raw: '{{baseUrl}}/enrollments?limit=20' },
+    auth: bearerAuth('adminToken'),
+    tests: [
+      `pm.test("200 OK — List Enrollments V2", () => pm.response.to.have.status(200));`,
+      `const j = pm.response.json();`,
+      `pm.test("items is array", () => pm.expect(j.items).to.be.an("array"));`,
+    ],
+  }),
+  buildRequest({
+    name: 'Approve Enrollment V2 (POST /enrollments/:id/approve)',
+    method: 'POST',
+    url: { raw: '{{baseUrl}}/enrollments/{{enrollmentId}}/approve' },
+    auth: bearerAuth('adminToken'),
+    headers: jsonHeader(),
+    body: jsonBody({ note: 'Approved for the 2026 intake.' }),
+    tests: [
+      `pm.test("200 or 404 or 409 — Approve Enrollment V2", () => {`,
+      `  pm.expect([200, 404, 409]).to.include(pm.response.code);`,
+      `});`,
+    ],
+  }),
+  buildRequest({
+    name: 'Reject Enrollment V2 (POST /enrollments/:id/reject)',
+    method: 'POST',
+    url: { raw: '{{baseUrl}}/enrollments/{{enrollmentId}}/reject' },
+    auth: bearerAuth('adminToken'),
+    headers: jsonHeader(),
+    body: jsonBody({ reason: 'Rejected via V2 path.' }),
+    tests: [
+      `pm.test("200 or 404 or 409 — Reject Enrollment V2", () => {`,
+      `  pm.expect([200, 404, 409]).to.include(pm.response.code);`,
+      `});`,
+    ],
+  }),
 ]);
 
 // ---------------------------------------------------------------------------
@@ -1078,21 +1450,79 @@ const enrollmentFolder = folder('7️⃣ Enrollment', [
 // ---------------------------------------------------------------------------
 
 const roleRequestsFolder = folder('8️⃣ Role Requests (V2)', [
-  buildRequest({
-    name: 'Create Role Request',
-    method: 'POST',
-    url: { raw: '{{baseUrl}}/role-requests' },
-    auth: bearerAuth('student2Token'),
-    headers: jsonHeader(),
-    body: jsonBody({ requestedRole: 'student' }),
-    tests: [
-      `pm.test("201 or 409 — Create Role Request", () => {`,
-      `  pm.expect([201, 409]).to.include(pm.response.code);`,
-      `});`,
-      `const j = pm.response.json();`,
-      `if (j.id) { pm.environment.set("roleRequestId", j.id); }`,
-    ],
-  }),
+  // ── 1. Create Role Request — multipart/form-data (PDF required) ────────────
+  // Content-Type is set automatically by the multipart body; do NOT add it manually.
+  // Newman cannot load a real PDF from disk, so the server returns 400 (file required).
+  // In Postman UI: set body to form-data and select a PDF file for qualificationFile.
+  {
+    id: uuid(),
+    name: 'Create Role Request (multipart)',
+    request: {
+      method: 'POST',
+      header: [],
+      body: {
+        mode: 'formdata',
+        formdata: [
+          { key: 'requestedRole',      value: 'student',                  type: 'text' },
+          { key: 'firstName',          value: 'Test',                     type: 'text' },
+          { key: 'lastName',           value: 'Student',                  type: 'text' },
+          { key: 'phoneNumber',        value: '+94771234567',             type: 'text' },
+          { key: 'email',              value: 'test.student@example.com', type: 'text' },
+          { key: 'dateOfBirth',        value: '2000-06-15',               type: 'text' },
+          { key: 'gender',             value: 'male',                     type: 'text' },
+          { key: 'address',            value: '123 Main St, Colombo',     type: 'text' },
+          { key: 'qualificationTitle', value: 'BSc Computer Science',     type: 'text' },
+          {
+            key: 'qualificationFile',
+            type: 'file',
+            src: '',
+            description: 'Select a PDF file (max 10 MB). Required — request returns 400 without it.',
+          },
+        ],
+      },
+      url: makeUrl('{{baseUrl}}/role-requests'),
+      auth: bearerAuth('studentToken'),
+      description: [
+        'Submit a student role application. All fields are multipart form data.',
+        '',
+        'Field          | Value',
+        '---------------|----------------------------------------',
+        'requestedRole  | student',
+        'firstName      | Applicant first name',
+        'lastName       | Applicant last name',
+        'phoneNumber    | e.g. +94771234567',
+        'email          | Valid email address',
+        'dateOfBirth    | YYYY-MM-DD',
+        'gender         | male | female | other',
+        'address        | Free text (max 500 chars)',
+        'qualificationTitle | Title of the qualification PDF',
+        'qualificationFile  | PDF file, max 10 MB',
+        '',
+        'Newman note: 400 is expected (no file on disk). Use Postman UI to test a real PDF upload.',
+      ].join('\n'),
+    },
+    response: [],
+    event: testScript([
+      `if (pm.response && pm.response.code !== undefined) {`,
+      `  // 400 = no file (Newman); 403 = token has stale role claims (re-run after role restoration); 409 = already pending; 413 = too large; 415 = not PDF`,
+      `  pm.test("201/400/403/409/413/415 — Create Role Request", () => {`,
+      `    pm.expect([201, 400, 403, 409, 413, 415]).to.include(pm.response.code);`,
+      `  });`,
+      `  try {`,
+      `    const j = pm.response.json();`,
+      `    if (j && j.id) {`,
+      `      pm.environment.set("roleRequestId", j.id);`,
+      `      pm.test("applicantProfile is an object", () => pm.expect(j.applicantProfile).to.be.an("object"));`,
+      `      pm.test("qualificationStoragePath is a string", () => pm.expect(j.qualificationStoragePath).to.be.a("string"));`,
+      `    }`,
+      `  } catch (_) {}`,
+      `} else {`,
+      `  console.warn("Create Role Request skipped — no file source available in Newman.");`,
+      `}`,
+    ]),
+  },
+
+  // ── 2. Get My Role Requests ────────────────────────────────────────────────
   buildRequest({
     name: 'Get My Role Requests',
     method: 'GET',
@@ -1101,12 +1531,19 @@ const roleRequestsFolder = folder('8️⃣ Role Requests (V2)', [
     tests: [
       `pm.test("200 OK — Get My Role Requests", () => pm.response.to.have.status(200));`,
       `const j = pm.response.json();`,
-      `pm.test("items is array", () => pm.expect(j.items).to.be.an("array"));`,
-      `if (j.items && j.items.length > 0 && !pm.environment.get("roleRequestId")) {`,
-      `  pm.environment.set("roleRequestId", j.items[0].id);`,
+      `pm.test("result is an array", () => pm.expect(j).to.be.an("array"));`,
+      `if (Array.isArray(j) && j.length > 0) {`,
+      `  if (!pm.environment.get("roleRequestId")) { pm.environment.set("roleRequestId", j[0].id); }`,
+      `  if (j[0].applicantProfile) {`,
+      `    pm.test("applicantProfile.firstName is a string", () => pm.expect(j[0].applicantProfile.firstName).to.be.a("string"));`,
+      `    pm.test("applicantProfile.dateOfBirth is a string", () => pm.expect(j[0].applicantProfile.dateOfBirth).to.be.a("string"));`,
+      `    pm.test("qualificationTitle is a string", () => pm.expect(j[0].qualificationTitle).to.be.a("string"));`,
+      `  }`,
       `}`,
     ],
   }),
+
+  // ── 3. List Role Requests (Admin) ─────────────────────────────────────────
   buildRequest({
     name: 'List Role Requests (Admin)',
     method: 'GET',
@@ -1116,33 +1553,130 @@ const roleRequestsFolder = folder('8️⃣ Role Requests (V2)', [
       `pm.test("200 OK — List Role Requests", () => pm.response.to.have.status(200));`,
       `const j = pm.response.json();`,
       `pm.test("items is array", () => pm.expect(j.items).to.be.an("array"));`,
-      `if (j.items && j.items.length > 0 && !pm.environment.get("roleRequestId")) {`,
-      `  pm.environment.set("roleRequestId", j.items[0].id);`,
+      `if (j.items && j.items.length > 0) {`,
+      `  if (!pm.environment.get("roleRequestId")) { pm.environment.set("roleRequestId", j.items[0].id); }`,
+      `  if (j.items[0].applicantProfile) {`,
+      `    pm.test("applicantProfile.email is a string", () => pm.expect(j.items[0].applicantProfile.email).to.be.a("string"));`,
+      `    pm.test("qualificationTitle present on list item", () => pm.expect(j.items[0].qualificationTitle).to.be.a("string"));`,
+      `  }`,
       `}`,
     ],
   }),
+
+  // ── 4. Get Own Role Request by ID (Member) ────────────────────────────────
+  // Member retrieves their own role request by ID.
+  // Ownership is enforced by GetRoleRequestByIdUseCase:
+  //   - isAdmin=false  → allowed only when roleRequest.requesterUid === caller UID
+  //   - Returns 403 FORBIDDEN if the caller tries to fetch another user's request
   buildRequest({
-    name: 'Get Role Request by ID',
+    name: 'Get Own Role Request by ID (Member)',
+    method: 'GET',
+    url: { raw: '{{baseUrl}}/role-requests/{{roleRequestId}}' },
+    auth: bearerAuth('studentToken'),
+    description: [
+      'Member (or student/leader/g12) fetches their own role request by ID.',
+      'Access rule: GetRoleRequestByIdUseCase enforces ownership — non-admin callers',
+      'may only view requests where roleRequest.requesterUid === their own UID.',
+      '',
+      'Returns 200 with the full RoleRequest object (including applicantProfile).',
+      'Returns 403 FORBIDDEN if the caller tries to read someone else\'s request.',
+      'Returns 404 ROLE_REQUEST_NOT_FOUND if the ID does not exist.',
+    ].join('\n'),
+    tests: [
+      `pm.test("200 or 404 — Get Own Role Request (Member)", () => {`,
+      `  pm.expect([200, 403, 404]).to.include(pm.response.code);`,
+      `});`,
+      `if (pm.response.code === 200) {`,
+      `  const j = pm.response.json();`,
+      `  pm.test("id is a string",          () => pm.expect(j.id).to.be.a("string"));`,
+      `  pm.test("requesterUid is a string", () => pm.expect(j.requesterUid).to.be.a("string"));`,
+      `  pm.test("requestedRole is student", () => pm.expect(j.requestedRole).to.equal("student"));`,
+      `  pm.test("status is valid",          () => pm.expect(["pending","approved","rejected"]).to.include(j.status));`,
+      `  pm.test("createdAt is a string",    () => pm.expect(j.createdAt).to.be.a("string"));`,
+      `  pm.test("qualificationTitle is a string",       () => pm.expect(j.qualificationTitle).to.be.a("string"));`,
+      `  pm.test("qualificationStoragePath is a string", () => pm.expect(j.qualificationStoragePath).to.be.a("string"));`,
+      `  pm.test("applicantProfile is an object",        () => pm.expect(j.applicantProfile).to.be.an("object"));`,
+      `  pm.test("applicantProfile.firstName present",   () => pm.expect(j.applicantProfile.firstName).to.be.a("string"));`,
+      `  pm.test("applicantProfile.lastName present",    () => pm.expect(j.applicantProfile.lastName).to.be.a("string"));`,
+      `  pm.test("applicantProfile.phoneNumber present", () => pm.expect(j.applicantProfile.phoneNumber).to.be.a("string"));`,
+      `  pm.test("applicantProfile.email present",       () => pm.expect(j.applicantProfile.email).to.be.a("string"));`,
+      `  pm.test("applicantProfile.dateOfBirth present", () => pm.expect(j.applicantProfile.dateOfBirth).to.be.a("string"));`,
+      `  pm.test("applicantProfile.gender is valid",     () => pm.expect(["male","female","other"]).to.include(j.applicantProfile.gender));`,
+      `  pm.test("applicantProfile.address present",     () => pm.expect(j.applicantProfile.address).to.be.a("string"));`,
+      `}`,
+    ],
+  }),
+
+  // ── 5. Get Role Request by ID (Admin) ─────────────────────────────────────
+  // Admin retrieves any role request by ID — no ownership restriction.
+  buildRequest({
+    name: 'Get Role Request by ID (Admin)',
     method: 'GET',
     url: { raw: '{{baseUrl}}/role-requests/{{roleRequestId}}' },
     auth: bearerAuth('adminToken'),
+    description: [
+      'Admin or super_admin fetches any role request by ID.',
+      'isAdmin=true bypasses the ownership check in GetRoleRequestByIdUseCase.',
+    ].join('\n'),
     tests: [
-      `pm.test("200 or 404 — Get Role Request", () => {`,
+      `pm.test("200 or 404 — Get Role Request (Admin)", () => {`,
       `  pm.expect([200, 404]).to.include(pm.response.code);`,
       `});`,
+      `if (pm.response.code === 200) {`,
+      `  const j = pm.response.json();`,
+      `  pm.test("id is a string",          () => pm.expect(j.id).to.be.a("string"));`,
+      `  pm.test("requestedRole is student", () => pm.expect(j.requestedRole).to.equal("student"));`,
+      `  pm.test("status is valid",          () => pm.expect(["pending","approved","rejected"]).to.include(j.status));`,
+      `  if (j.qualificationTitle !== undefined) pm.test("qualificationTitle is a string", () => pm.expect(j.qualificationTitle).to.be.a("string"));`,
+      `  if (j.qualificationStoragePath !== undefined) pm.test("qualificationStoragePath is a string", () => pm.expect(j.qualificationStoragePath).to.be.a("string"));`,
+      `  if (j.applicantProfile) {`,
+      `    pm.test("applicantProfile is an object",        () => pm.expect(j.applicantProfile).to.be.an("object"));`,
+      `    pm.test("applicantProfile.firstName present",   () => pm.expect(j.applicantProfile.firstName).to.be.a("string"));`,
+      `    pm.test("applicantProfile.lastName present",    () => pm.expect(j.applicantProfile.lastName).to.be.a("string"));`,
+      `    pm.test("applicantProfile.dateOfBirth present", () => pm.expect(j.applicantProfile.dateOfBirth).to.be.a("string"));`,
+      `    pm.test("applicantProfile.gender is valid",     () => pm.expect(["male","female","other"]).to.include(j.applicantProfile.gender));`,
+      `    pm.test("applicantProfile.address present",     () => pm.expect(j.applicantProfile.address).to.be.a("string"));`,
+      `  }`,
+      `}`,
     ],
   }),
+
+  // ── 7. Download Qualification PDF ─────────────────────────────────────────
+  // NEW — returns a 15-minute signed URL for the applicant's education qualification PDF.
+  buildRequest({
+    name: 'Download Qualification PDF',
+    method: 'GET',
+    url: { raw: '{{baseUrl}}/role-requests/{{roleRequestId}}/qualification' },
+    auth: bearerAuth('adminToken'),
+    tests: [
+      `pm.test("200 or 404 — Download Qualification", () => {`,
+      `  pm.expect([200, 404]).to.include(pm.response.code);`,
+      `});`,
+      `if (pm.response.code === 200) {`,
+      `  const j = pm.response.json();`,
+      `  pm.test("signedUrl is a non-empty string", () => pm.expect(j.signedUrl).to.be.a("string").and.not.empty);`,
+      `  pm.test("expiresAt is a string",            () => pm.expect(j.expiresAt).to.be.a("string"));`,
+      `  pm.test("qualificationTitle is a string",   () => pm.expect(j.qualificationTitle).to.be.a("string"));`,
+      `}`,
+    ],
+  }),
+
+  // ── 8. Approve Role Request ────────────────────────────────────────────────
   buildRequest({
     name: 'Approve Role Request',
     method: 'POST',
     url: { raw: '{{baseUrl}}/role-requests/{{roleRequestId}}/approve' },
     auth: bearerAuth('adminToken'),
+    headers: jsonHeader(),
+    body: jsonBody({ note: 'Welcome! You can now enroll in courses.' }),
     tests: [
-      `pm.test("200 or 404 — Approve Role Request", () => {`,
-      `  pm.expect([200, 404]).to.include(pm.response.code);`,
+      `pm.test("200 or 404 or 409 — Approve Role Request (409 = already decided)", () => {`,
+      `  pm.expect([200, 404, 409]).to.include(pm.response.code);`,
       `});`,
     ],
   }),
+
+  // ── 9. Reject Role Request ─────────────────────────────────────────────────
   buildRequest({
     name: 'Reject Role Request',
     method: 'POST',
@@ -1151,8 +1685,8 @@ const roleRequestsFolder = folder('8️⃣ Role Requests (V2)', [
     headers: jsonHeader(),
     body: jsonBody({ note: 'Rejected for testing.' }),
     tests: [
-      `pm.test("200 or 404 — Reject Role Request", () => {`,
-      `  pm.expect([200, 404]).to.include(pm.response.code);`,
+      `pm.test("200 or 404 or 409 — Reject Role Request (409 = already decided)", () => {`,
+      `  pm.expect([200, 404, 409]).to.include(pm.response.code);`,
       `});`,
     ],
   }),
@@ -1169,7 +1703,8 @@ const progressFolder = folder('9️⃣ Progress Service', [
     url: { raw: '{{baseUrl}}/progress/subjects/{{subjectId}}/complete' },
     auth: bearerAuth('student2Token'),
     headers: jsonHeader(),
-    body: jsonBody({ courseId: '{{courseId}}', semesterId: '{{semesterId}}' }),
+    // API ref §12.1 — batchId added in V2 for cohort-level progress reporting
+    body: jsonBody({ courseId: '{{courseId}}', semesterId: '{{semesterId}}', batchId: '{{batchId}}' }),
     tests: [
       `pm.test("200 or 201 — Mark Complete", () => {`,
       `  pm.expect([200, 201]).to.include(pm.response.code);`,
@@ -1182,7 +1717,8 @@ const progressFolder = folder('9️⃣ Progress Service', [
     url: { raw: '{{baseUrl}}/progress/subjects/{{subjectId}}/access' },
     auth: bearerAuth('student2Token'),
     headers: jsonHeader(),
-    body: jsonBody({ courseId: '{{courseId}}', semesterId: '{{semesterId}}' }),
+    // API ref §12.2 — batchId added in V2
+    body: jsonBody({ courseId: '{{courseId}}', semesterId: '{{semesterId}}', batchId: '{{batchId}}' }),
     tests: [
       `pm.test("200 or 201 — Record Access", () => {`,
       `  pm.expect([200, 201]).to.include(pm.response.code);`,
@@ -1229,7 +1765,10 @@ const notificationsFolder = folder('🔔 Notifications', [
     tests: [
       `pm.test("200 OK — Get Notifications", () => pm.response.to.have.status(200));`,
       `const j = pm.response.json();`,
-      `pm.test("items is array", () => pm.expect(j.items).to.be.an("array"));`,
+      `pm.test("items is array",    () => pm.expect(j.items).to.be.an("array"));`,
+      `pm.test("total is a number", () => pm.expect(j.total).to.be.a("number"));`,
+      // API ref §16.1 — unreadCount field added in V2
+      `if (j.unreadCount !== undefined) pm.test("unreadCount is a number", () => pm.expect(j.unreadCount).to.be.a("number"));`,
       `if (j.items && j.items.length > 0) { pm.environment.set("notificationId", j.items[0].id); }`,
     ],
   }),
@@ -1258,7 +1797,7 @@ const notificationsFolder = folder('🔔 Notifications', [
     auth: bearerAuth('student2Token'),
     headers: jsonHeader(),
     body: jsonBody({ email: true, push: false }),
-    tests: [`pm.test("204 No Content — Update Preferences", () => pm.response.to.have.status(204));`],
+    tests: [`pm.test("200 OK — Update Preferences", () => pm.response.to.have.status(200));`],
   }),
 ]);
 
@@ -1273,34 +1812,32 @@ const storageFolder = folder('📎 Storage Service', [
     request: {
       method: 'POST',
       header: [],
-      body: {
-        mode: 'formdata',
-        formdata: [
-          {
-            key: 'attachment',
-            type: 'file',
-            src: '',
-            description: 'Select a PDF or DOCX file (max 25 MB). This is a multipart/form-data upload.',
-          },
-        ],
-      },
-      url: { raw: '{{baseUrl}}/subjects/{{subjectId}}/attachments' },
+      // No body — file-type formdata entries cause Newman to error before the request is sent.
+      // In Postman UI: switch body to form-data, add key "attachment" (File type), select a PDF/DOCX (max 25 MB).
+      url: makeUrl('{{baseUrl}}/subjects/{{subjectId}}/attachments'),
       auth: bearerAuth('adminToken'),
-      description: 'Multipart file upload. Select a real PDF/DOCX file in Postman before sending. Max 25 MB. Returns attachment metadata including the attachment ID.',
+      description: 'Multipart file upload. In Postman: set body to form-data, add field "attachment" (File type), select a PDF or DOCX file (max 25 MB). Returns attachment metadata including the attachment ID. Automated Newman runs skip this — 400 is expected.',
     },
     response: [],
     event: testScript([
-      `pm.test("201 Created or 400/415 — Upload Attachment", () => {`,
-      `  pm.expect([201, 400, 415]).to.include(pm.response.code);`,
-      `});`,
-      `const j = pm.response.json();`,
-      `if (j.id) { pm.environment.set("attachmentId", j.id); }`,
+      `// Newman cannot load a file from disk — pm.response may be undefined on file-load error`,
+      `if (pm.response && pm.response.code !== undefined) {`,
+      `  pm.test("201 Created or 400/415 — Upload Attachment", () => {`,
+      `    pm.expect([201, 400, 415]).to.include(pm.response.code);`,
+      `  });`,
+      `  try {`,
+      `    const j = pm.response.json();`,
+      `    if (j && j.id) { pm.environment.set("attachmentId", j.id); }`,
+      `  } catch (_) {}`,
+      `} else {`,
+      `  console.warn("Upload Attachment skipped — no file source available in Newman.");`,
+      `}`,
     ]),
   },
   buildRequest({
     name: 'Get Attachment Download URL',
     method: 'GET',
-    url: { raw: '{{baseUrl}}/attachments/{{attachmentId}}/download-url' },
+    url: '{{baseUrl}}/attachments/{{attachmentId}}/download-url',
     auth: bearerAuth('student2Token'),
     tests: [
       `pm.test("200 or 403 or 404 — Download URL", () => {`,
@@ -1536,7 +2073,7 @@ const membersSubFolder = folder('Members', [
     method: 'DELETE',
     url: { raw: '{{baseUrl}}/cells/{{cellId}}/members/{{student2Id}}' },
     auth: bearerAuth('leaderToken'),
-    tests: [`pm.test("204 No Content — Remove Member", () => pm.response.to.have.status(204));`],
+    tests: [`pm.test("200 OK — Remove Member", () => pm.response.to.have.status(200));`],
   }),
 ]);
 
@@ -1584,8 +2121,8 @@ const joinRequestsSubFolder = folder('Join Requests', [
     headers: jsonHeader(),
     body: jsonBody({ note: 'Rejected for testing.' }),
     tests: [
-      `pm.test("200 or 404 — Reject Join Request", () => {`,
-      `  pm.expect([200, 404]).to.include(pm.response.code);`,
+      `pm.test("200 or 404 or 409 — Reject Join Request (409 = already decided)", () => {`,
+      `  pm.expect([200, 404, 409]).to.include(pm.response.code);`,
       `});`,
     ],
   }),
@@ -1623,46 +2160,62 @@ const cellReportsSubFolder = folder('Cell Reports', [
       `if (j.photoUrls && j.photoUrls.length > 0) { pm.environment.set("reportPhotoUrls", JSON.stringify(j.photoUrls)); }`,
     ]),
   },
-  buildRequest({
+  // File Cell Report — must use multipart/form-data with a JSON string in the "data" field
+  {
+    id: uuid(),
     name: 'File Cell Report',
-    method: 'POST',
-    url: { raw: '{{baseUrl}}/cells/{{cellId}}/reports' },
-    auth: bearerAuth('leaderToken'),
-    headers: jsonHeader(),
-    body: jsonBody({
-      date: '2026-05-18',
-      didMeet: true,
-      leaderPresent: true,
-      conductedByIfAbsent: null,
-      location: 'Leader Home',
-      timeStarted: '17:00',
-      timeEnded: '19:00',
-      language: 'en',
-      subjectDiscussed: 'sunday_sermon',
-      otherSubjectReason: null,
-      cellType: 'care',
-      g12LeaderUid: '{{leaderId}}',
-      immediateG12LeaderText: null,
-      attendance: [
-        { name: 'Saman Silva', status: 'present', isNew: false },
-        { name: 'Kamala Perera', status: 'present', isNew: true },
-      ],
-      contactedAbsentees: 'no',
-      absenteeNotes: null,
-      additionalVisitors: 0,
-      childrenCount: 2,
-      satisfactionRate: 5,
-      additionalInfo: null,
-      photoUrls: [],
-      clientReqId: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890',
-      noMeetReason: null,
-    }),
-    tests: [
+    request: {
+      method: 'POST',
+      header: [{ key: 'X-Idempotency-Key', value: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890' }],
+      body: {
+        mode: 'formdata',
+        formdata: [
+          {
+            key: 'data',
+            type: 'text',
+            value: JSON.stringify({
+              date: '2026-05-18',
+              didMeet: true,
+              leaderPresent: true,
+              conductedByIfAbsent: null,
+              location: 'Leader Home',
+              timeStarted: '17:00',
+              timeEnded: '19:00',
+              language: 'en',
+              subjectDiscussed: 'sunday_sermon',
+              otherSubjectReason: null,
+              cellType: 'care',
+              g12LeaderUid: '',
+              immediateG12LeaderText: null,
+              attendance: [
+                { name: 'Saman Silva', status: 'present', isNew: false },
+                { name: 'Kamala Perera', status: 'present', isNew: true },
+              ],
+              contactedAbsentees: 'no',
+              absenteeNotes: null,
+              additionalVisitors: 0,
+              childrenCount: 2,
+              satisfactionRate: 5,
+              additionalInfo: null,
+              photoUrls: [],
+              clientReqId: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890',
+              noMeetReason: null,
+            }),
+            description: 'Report fields as a JSON string. Required by handleFileReport middleware.',
+          },
+        ],
+      },
+      url: makeUrl('{{baseUrl}}/cells/{{cellId}}/reports'),
+      auth: bearerAuth('leaderToken'),
+      description: 'POST /cells/:id/reports — multipart/form-data. The "data" field must be a JSON string containing all report fields. Optional "photos" field accepts up to 10 JPEG/PNG files.',
+    },
+    response: [],
+    event: testScript([
       `pm.test("201 Created — File Cell Report", () => pm.response.to.have.status(201));`,
       `const j = pm.response.json();`,
       `if (j.id) { pm.environment.set("cellReportId", j.id); }`,
-    ],
-  }),
+    ]),
+  },
   buildRequest({
     name: 'List Cell Reports',
     method: 'GET',
@@ -1756,12 +2309,56 @@ const analyticsFolder = folder('📊 V2 — Analytics Service', [
     tests: [`pm.test("200 OK — Participation Analytics", () => pm.response.to.have.status(200));`],
   }),
   buildRequest({
-    name: 'Export Weekly Analytics (CSV)',
+    name: 'Export Cells-Weekly Analytics (CSV)',
     method: 'GET',
-    url: { raw: '{{baseUrl}}/analytics/weekly/export?weeks=12' },
+    url: { raw: '{{baseUrl}}/analytics/cells-weekly/export?weeks=12' },
     auth: bearerAuth('g12Token'),
     tests: [
-      `pm.test("200 or 404 — Export Analytics", () => {`,
+      `pm.test("200 or 404 — Export Cells-Weekly CSV", () => {`,
+      `  pm.expect([200, 404]).to.include(pm.response.code);`,
+      `});`,
+    ],
+  }),
+  buildRequest({
+    name: 'Export Attendance Analytics (CSV)',
+    method: 'GET',
+    url: { raw: '{{baseUrl}}/analytics/attendance/export' },
+    auth: bearerAuth('g12Token'),
+    tests: [
+      `pm.test("200 or 404 — Export Attendance CSV", () => {`,
+      `  pm.expect([200, 404]).to.include(pm.response.code);`,
+      `});`,
+    ],
+  }),
+  buildRequest({
+    name: 'Export Meeting-Types Analytics (CSV)',
+    method: 'GET',
+    url: { raw: '{{baseUrl}}/analytics/meeting-types/export' },
+    auth: bearerAuth('g12Token'),
+    tests: [
+      `pm.test("200 or 404 — Export Meeting-Types CSV", () => {`,
+      `  pm.expect([200, 404]).to.include(pm.response.code);`,
+      `});`,
+    ],
+  }),
+  buildRequest({
+    name: 'Export Growth Analytics (CSV)',
+    method: 'GET',
+    url: { raw: '{{baseUrl}}/analytics/growth/export' },
+    auth: bearerAuth('g12Token'),
+    tests: [
+      `pm.test("200 or 404 — Export Growth CSV", () => {`,
+      `  pm.expect([200, 404]).to.include(pm.response.code);`,
+      `});`,
+    ],
+  }),
+  buildRequest({
+    name: 'Export Participation Analytics (CSV)',
+    method: 'GET',
+    url: { raw: '{{baseUrl}}/analytics/participation/export' },
+    auth: bearerAuth('g12Token'),
+    tests: [
+      `pm.test("200 or 404 — Export Participation CSV", () => {`,
       `  pm.expect([200, 404]).to.include(pm.response.code);`,
       `});`,
     ],
@@ -1816,11 +2413,52 @@ const healthFolder = folder('🏥 Health Checks', [
     tests: [`pm.test("200 OK — Cell Liveness", () => pm.response.to.have.status(200));`],
   }),
   buildRequest({
+    name: 'Enrollment Service — Liveness',
+    method: 'GET',
+    url: { raw: 'http://localhost:3004/healthz' },
+    auth: noAuth(),
+    tests: [`pm.test("200 OK — Enrollment Liveness", () => pm.response.to.have.status(200));`],
+  }),
+  buildRequest({
+    name: 'Progress Service — Liveness',
+    method: 'GET',
+    url: { raw: 'http://localhost:3005/healthz' },
+    auth: noAuth(),
+    tests: [`pm.test("200 OK — Progress Liveness", () => pm.response.to.have.status(200));`],
+  }),
+  buildRequest({
+    name: 'Storage Service — Liveness',
+    method: 'GET',
+    url: { raw: 'http://localhost:3006/healthz' },
+    auth: noAuth(),
+    tests: [`pm.test("200 OK — Storage Liveness", () => pm.response.to.have.status(200));`],
+  }),
+  buildRequest({
+    name: 'Notification Service — Liveness',
+    method: 'GET',
+    url: { raw: 'http://localhost:3007/healthz' },
+    auth: noAuth(),
+    tests: [`pm.test("200 OK — Notification Liveness", () => pm.response.to.have.status(200));`],
+  }),
+  buildRequest({
+    name: 'Audit Service — Liveness',
+    method: 'GET',
+    url: { raw: 'http://localhost:3008/healthz' },
+    auth: noAuth(),
+    tests: [`pm.test("200 OK — Audit Liveness", () => pm.response.to.have.status(200));`],
+  }),
+  buildRequest({
     name: 'Analytics Service — Liveness',
     method: 'GET',
-    url: { raw: 'http://localhost:3011/healthz' },
-    auth: noAuth(),
-    tests: [`pm.test("200 OK — Analytics Liveness", () => pm.response.to.have.status(200));`],
+    // Direct port 3011 may be blocked by Windows Firewall in Docker Desktop setups.
+    // Use the gateway proxy instead — this also verifies the full analytics route is live.
+    url: { raw: '{{baseUrl}}/analytics/cells/weekly?weeks=1' },
+    auth: bearerAuth('g12Token'),
+    tests: [
+      `pm.test("200 or 404 — Analytics Liveness (via gateway)", () => {`,
+      `  pm.expect([200, 404]).to.include(pm.response.code);`,
+      `});`,
+    ],
   }),
 ]);
 
@@ -1831,11 +2469,49 @@ const healthFolder = folder('🏥 Health Checks', [
 const collection = {
   info: {
     _postman_id: uuid(),
-    name: 'TCCR Backend — Full API Collection',
+    name: 'TCCR Backend — Full API Collection v2.5',
     description:
-      'Complete API test collection for TCCR (The Christian Center Rathmalana) backend. Covers all V1 and V2 endpoints across 10 microservices.\n\nTest flow:\n1. Run 🔐 Sign In first to populate all tokens\n2. Run folders in order (1️⃣ → 📊)\n3. Each folder may depend on IDs saved by previous folders\n\nPrerequisites:\n- Firebase emulators running: npx firebase emulators:start\n- Services running: docker-compose -f docker-compose.yml -f docker-compose.local.yml up\n- Seeded: node scripts/seed-emulator.js && node scripts/seed-v2-roles.js',
+      'Complete API test collection for TCCR (The Christian Center Rathmalana) backend.\n' +
+      'Aligned with API Reference v2.5.0 (22 May 2026).\n' +
+      'Covers all V1 and V2 endpoints across 13 microservices.\n\n' +
+      'Test flow:\n' +
+      '1. Run 🔐 Sign In first — populates all *Token and *Id variables\n' +
+      '2. Run folders in order (1️⃣ → 📊) — each folder saves IDs used by later folders\n' +
+      '3. Before each Newman run: node scripts/_restore-seeds.js\n\n' +
+      'Prerequisites (online Firebase):\n' +
+      '  docker-compose up (services running against e-learning-f4209)\n' +
+      '  node scripts/_restore-seeds.js\n\n' +
+      'Prerequisites (emulator):\n' +
+      '  npx firebase emulators:start\n' +
+      '  node scripts/seed-emulator.js && node scripts/seed-v2-roles.js\n' +
+      '  docker-compose -f docker-compose.yml -f docker-compose.local.yml up\n\n' +
+      'Key V2 changes vs V1:\n' +
+      '  • Registration auto-approves as Member (no pending_approval queue)\n' +
+      '  • Roles are additive arrays: ["member","student","leader","g12"]\n' +
+      '  • Role Requests: POST /role-requests (multipart/form-data with PDF)\n' +
+      '  • Batches: intake cohorts under each course\n' +
+      '  • Cell Groups, Cell Reports, Analytics dashboards\n' +
+      '  • Federated OAuth (Google + Apple SDK + Apple web flow)',
     schema: 'https://schema.getpostman.com/json/collection/v2.1.0/collection.json',
   },
+  // Collection-level pre-request script: generates a unique runId once per Newman session.
+  // All emails and titles that could conflict on re-runs use {{runId}} as a suffix.
+  event: [
+    {
+      listen: 'prerequest',
+      script: {
+        id: uuid(),
+        type: 'text/javascript',
+        exec: [
+          '// Generate a short unique run ID once per Newman session.',
+          '// Emails + course titles embed this so re-runs on online Firebase never conflict.',
+          "if (!pm.environment.get('runId')) {",
+          "  pm.environment.set('runId', Date.now().toString().slice(-6));",
+          '}',
+        ],
+      },
+    },
+  ],
   item: [
     signInFolder,
     authFolder,

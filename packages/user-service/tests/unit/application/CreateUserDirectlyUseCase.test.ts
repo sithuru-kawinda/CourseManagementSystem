@@ -2,10 +2,12 @@ import {
   CreateUserDirectlyUseCase,
   CreateUserDirectlyInput,
 } from '../../../src/application/use-cases/CreateUserDirectlyUseCase';
-import { IUserRepository }    from '../../../src/domain/repositories/IUserRepository';
-import { FirebaseAuthClient } from '../../../src/infrastructure/clients/FirebaseAuthClient';
+import { IUserRepository }      from '../../../src/domain/repositories/IUserRepository';
+import { FirebaseAuthClient }   from '../../../src/infrastructure/clients/FirebaseAuthClient';
 import { OutboxEventPublisher } from '@shared/events';
-import { User }               from '../../../src/domain/entities/User';
+import { User }                 from '../../../src/domain/entities/User';
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
 
 const makeUser = (overrides = {}): User =>
   new User({
@@ -25,14 +27,14 @@ const makeRepo = (): jest.Mocked<IUserRepository> => ({
 });
 
 const makeAuthClient = (): jest.Mocked<FirebaseAuthClient> => ({
-  createUser:                  jest.fn(),
-  setCustomClaims:             jest.fn(),
-  disableUser:                 jest.fn(),
-  enableUser:                  jest.fn(),
-  updatePassword:              jest.fn(),
-  deleteUser:                  jest.fn(),
-  verifyPassword:              jest.fn(),
-  generatePasswordResetLink:   jest.fn(),
+  createUser:                jest.fn(),
+  setCustomClaims:           jest.fn(),
+  disableUser:               jest.fn(),
+  enableUser:                jest.fn(),
+  updatePassword:            jest.fn(),
+  deleteUser:                jest.fn(),
+  verifyPassword:            jest.fn(),
+  generatePasswordResetLink: jest.fn(),
 } as unknown as jest.Mocked<FirebaseAuthClient>);
 
 const makeOutbox = (): jest.Mocked<OutboxEventPublisher> =>
@@ -50,6 +52,8 @@ const G12_INPUT: CreateUserDirectlyInput = {
   role: 'g12',
 };
 
+// ─── Tests ───────────────────────────────────────────────────────────────────
+
 describe('CreateUserDirectlyUseCase', () => {
   let repo:       jest.Mocked<IUserRepository>;
   let authClient: jest.Mocked<FirebaseAuthClient>;
@@ -64,8 +68,10 @@ describe('CreateUserDirectlyUseCase', () => {
     useCase    = new CreateUserDirectlyUseCase(repo, authClient, outbox);
   });
 
+  // ── leader role ────────────────────────────────────────────────────────────
+
   describe('leader role', () => {
-    it('creates the Firebase Auth account and Firestore record', async () => {
+    it('creates Firebase Auth account and Firestore record', async () => {
       repo.findByEmail.mockResolvedValue(null);
       authClient.createUser.mockResolvedValue('new-uid');
       authClient.setCustomClaims.mockResolvedValue(undefined);
@@ -84,7 +90,7 @@ describe('CreateUserDirectlyUseCase', () => {
       expect(user.uid).toBe('new-uid');
     });
 
-    it('returns the user with role=leader, roles=[member,leader], status=approved', async () => {
+    it('returns user with role=leader, roles=[member, leader], status=approved', async () => {
       repo.findByEmail.mockResolvedValue(null);
       authClient.createUser.mockResolvedValue('new-uid');
       authClient.setCustomClaims.mockResolvedValue(undefined);
@@ -99,7 +105,7 @@ describe('CreateUserDirectlyUseCase', () => {
       expect(user.status).toBe('approved');
     });
 
-    it('sets custom claims with role=leader and roles=[member,leader]', async () => {
+    it('sets custom claims with role=leader and roles=[member, leader]', async () => {
       repo.findByEmail.mockResolvedValue(null);
       authClient.createUser.mockResolvedValue('new-uid');
       authClient.setCustomClaims.mockResolvedValue(undefined);
@@ -110,8 +116,7 @@ describe('CreateUserDirectlyUseCase', () => {
       await useCase.execute(LEADER_INPUT, 'req-1');
 
       expect(authClient.setCustomClaims).toHaveBeenCalledWith('new-uid', {
-        role:  'leader',
-        roles: ['member', 'leader'],
+        role: 'leader', roles: ['member', 'leader'],
       });
     });
 
@@ -128,18 +133,18 @@ describe('CreateUserDirectlyUseCase', () => {
       expect(outbox.publishWithBatch).toHaveBeenCalledWith(
         expect.objectContaining({
           type:      'admin.created',
+          requestId: 'req-abc',
           payload:   expect.objectContaining({
             uid:              'new-uid',
             email:            LEADER_INPUT.email,
             role:             'leader',
             passwordResetUrl: 'https://reset.link/leader',
           }),
-          requestId: 'req-abc',
         }),
       );
     });
 
-    it('still publishes event when generatePasswordResetLink fails (graceful fallback)', async () => {
+    it('falls back to passwordResetUrl=null when generatePasswordResetLink fails', async () => {
       repo.findByEmail.mockResolvedValue(null);
       authClient.createUser.mockResolvedValue('new-uid');
       authClient.setCustomClaims.mockResolvedValue(undefined);
@@ -155,10 +160,26 @@ describe('CreateUserDirectlyUseCase', () => {
         }),
       );
     });
+
+    it('still creates the user even when generatePasswordResetLink fails', async () => {
+      repo.findByEmail.mockResolvedValue(null);
+      authClient.createUser.mockResolvedValue('new-uid');
+      authClient.setCustomClaims.mockResolvedValue(undefined);
+      authClient.generatePasswordResetLink.mockRejectedValue(new Error('Firebase link error'));
+      repo.create.mockResolvedValue(undefined);
+      outbox.publishWithBatch.mockResolvedValue(undefined);
+
+      const user = await useCase.execute(LEADER_INPUT, 'req-fallback');
+
+      expect(user.uid).toBe('new-uid');
+      expect(repo.create).toHaveBeenCalledTimes(1);
+    });
   });
 
+  // ── g12 role ───────────────────────────────────────────────────────────────
+
   describe('g12 role', () => {
-    it('returns the user with role=g12, roles=[member,g12]', async () => {
+    it('returns user with role=g12, roles=[member, g12]', async () => {
       repo.findByEmail.mockResolvedValue(null);
       authClient.createUser.mockResolvedValue('g12-uid');
       authClient.setCustomClaims.mockResolvedValue(undefined);
@@ -172,7 +193,7 @@ describe('CreateUserDirectlyUseCase', () => {
       expect(user.roles).toEqual(['member', 'g12']);
     });
 
-    it('sets custom claims with role=g12 and roles=[member,g12]', async () => {
+    it('sets custom claims with role=g12 and roles=[member, g12]', async () => {
       repo.findByEmail.mockResolvedValue(null);
       authClient.createUser.mockResolvedValue('g12-uid');
       authClient.setCustomClaims.mockResolvedValue(undefined);
@@ -183,8 +204,7 @@ describe('CreateUserDirectlyUseCase', () => {
       await useCase.execute(G12_INPUT, 'req-2');
 
       expect(authClient.setCustomClaims).toHaveBeenCalledWith('g12-uid', {
-        role:  'g12',
-        roles: ['member', 'g12'],
+        role: 'g12', roles: ['member', 'g12'],
       });
     });
 
@@ -200,24 +220,47 @@ describe('CreateUserDirectlyUseCase', () => {
 
       expect(outbox.publishWithBatch).toHaveBeenCalledWith(
         expect.objectContaining({
-          payload: expect.objectContaining({ role: 'g12', passwordResetUrl: 'https://reset.link/g12' }),
+          payload: expect.objectContaining({
+            role: 'g12', passwordResetUrl: 'https://reset.link/g12',
+          }),
         }),
       );
     });
   });
 
-  describe('error cases', () => {
+  // ── 409 — email conflict ───────────────────────────────────────────────────
+
+  describe('execute — email conflict', () => {
     it('throws 409 EMAIL_EXISTS when email is already registered', async () => {
       repo.findByEmail.mockResolvedValue(makeUser());
 
       await expect(useCase.execute(LEADER_INPUT, 'req-1')).rejects.toMatchObject({
-        errorCode: 'EMAIL_EXISTS',
         status:    409,
+        errorCode: 'EMAIL_EXISTS',
       });
+    });
+
+    it('does not call authClient.createUser when email already exists', async () => {
+      repo.findByEmail.mockResolvedValue(makeUser());
+
+      await expect(useCase.execute(LEADER_INPUT, 'req-1')).rejects.toThrow();
+
       expect(authClient.createUser).not.toHaveBeenCalled();
     });
 
-    it('deletes the Firebase Auth user if Firestore create fails', async () => {
+    it('does not call deleteUser when email check fails (auth was never created)', async () => {
+      repo.findByEmail.mockResolvedValue(makeUser());
+
+      await expect(useCase.execute(LEADER_INPUT, 'req-1')).rejects.toThrow();
+
+      expect(authClient.deleteUser).not.toHaveBeenCalled();
+    });
+  });
+
+  // ── Rollback — Firebase Auth cleanup ──────────────────────────────────────
+
+  describe('execute — rollback on failure', () => {
+    it('deletes Firebase Auth user if Firestore create fails', async () => {
       repo.findByEmail.mockResolvedValue(null);
       authClient.createUser.mockResolvedValue('new-uid');
       authClient.setCustomClaims.mockResolvedValue(undefined);
@@ -226,21 +269,23 @@ describe('CreateUserDirectlyUseCase', () => {
       authClient.deleteUser.mockResolvedValue(undefined);
 
       await expect(useCase.execute(LEADER_INPUT, 'req-1')).rejects.toThrow('Firestore unavailable');
+
       expect(authClient.deleteUser).toHaveBeenCalledWith('new-uid');
     });
 
-    it('deletes the Firebase Auth user if setCustomClaims fails', async () => {
+    it('deletes Firebase Auth user if setCustomClaims fails', async () => {
       repo.findByEmail.mockResolvedValue(null);
       authClient.createUser.mockResolvedValue('new-uid');
       authClient.setCustomClaims.mockRejectedValue(new Error('Claims error'));
       authClient.deleteUser.mockResolvedValue(undefined);
 
       await expect(useCase.execute(LEADER_INPUT, 'req-1')).rejects.toThrow('Claims error');
+
       expect(authClient.deleteUser).toHaveBeenCalledWith('new-uid');
       expect(repo.create).not.toHaveBeenCalled();
     });
 
-    it('does not swallow outbox error — rolls back Firebase Auth user', async () => {
+    it('deletes Firebase Auth user if outbox.publishWithBatch fails', async () => {
       repo.findByEmail.mockResolvedValue(null);
       authClient.createUser.mockResolvedValue('new-uid');
       authClient.setCustomClaims.mockResolvedValue(undefined);
@@ -250,14 +295,27 @@ describe('CreateUserDirectlyUseCase', () => {
       authClient.deleteUser.mockResolvedValue(undefined);
 
       await expect(useCase.execute(LEADER_INPUT, 'req-1')).rejects.toThrow('Outbox error');
+
       expect(authClient.deleteUser).toHaveBeenCalledWith('new-uid');
     });
 
-    it('does not attempt Firestore rollback if Firebase Auth creation fails', async () => {
+    it('swallows deleteUser failure during rollback and still propagates original error', async () => {
+      repo.findByEmail.mockResolvedValue(null);
+      authClient.createUser.mockResolvedValue('new-uid');
+      authClient.setCustomClaims.mockResolvedValue(undefined);
+      authClient.generatePasswordResetLink.mockResolvedValue('https://reset.link/x');
+      repo.create.mockRejectedValue(new Error('Firestore unavailable'));
+      authClient.deleteUser.mockRejectedValue(new Error('Auth delete also failed'));
+
+      await expect(useCase.execute(LEADER_INPUT, 'req-1')).rejects.toThrow('Firestore unavailable');
+    });
+
+    it('does not attempt rollback if authClient.createUser fails (nothing to delete)', async () => {
       repo.findByEmail.mockResolvedValue(null);
       authClient.createUser.mockRejectedValue(new Error('Firebase Auth error'));
 
       await expect(useCase.execute(LEADER_INPUT, 'req-1')).rejects.toThrow('Firebase Auth error');
+
       expect(authClient.deleteUser).not.toHaveBeenCalled();
       expect(repo.create).not.toHaveBeenCalled();
     });

@@ -17,6 +17,13 @@ const makeRequest = (id: string, status: 'pending' | 'approved' | 'rejected' = '
     id, requesterUid: `uid-${id}`, requestedRole: 'student',
     status, decidedByUid: null, decisionNote: null,
     createdAt: '2026-01-01T00:00:00.000Z', decidedAt: null,
+    applicantProfile: {
+      firstName: 'John', lastName: 'Doe', phoneNumber: '+94771234567',
+      email: 'john@example.com', dateOfBirth: '2000-06-15',
+      gender: 'male', address: '123 Main St',
+    },
+    qualificationTitle:       'BSc Computer Science',
+    qualificationStoragePath: `qualifications/uid-${id}/${id}.pdf`,
   });
 
 describe('GetRoleRequestsUseCase', () => {

@@ -11,6 +11,8 @@ import { TrackLoginAttemptsUseCase }        from './application/use-cases/TrackL
 import { RequestPasswordResetUseCase }      from './application/use-cases/RequestPasswordResetUseCase';
 import { VerifyOtpAndResetUseCase }         from './application/use-cases/VerifyOtpAndResetUseCase';
 import { FederatedSignInUseCase }           from './application/use-cases/FederatedSignInUseCase';
+import { AppleWebCallbackUseCase }          from './application/use-cases/AppleWebCallbackUseCase';
+import { AppleRevokeUseCase }               from './application/use-cases/AppleRevokeUseCase';
 import { AuthController }                   from './http/controllers/AuthController';
 
 const attemptsRepo  = new FirestoreLoginAttemptsRepository();
@@ -27,10 +29,19 @@ const trackAttemptsUseCase   = new TrackLoginAttemptsUseCase(attemptsRepo);
 const requestResetUseCase    = new RequestPasswordResetUseCase(otpRepo, emailClient);
 const verifyOtpUseCase       = new VerifyOtpAndResetUseCase(otpRepo);
 const federatedSignInUseCase = new FederatedSignInUseCase(googleClient, appleClient, outbox);
+const appleCallbackUseCase   = new AppleWebCallbackUseCase(appleClient, outbox);
+const appleRevokeUseCase     = new AppleRevokeUseCase(appleClient);
 
 export const container = {
   authController: new AuthController(
-    registerUseCase, logoutUseCase, trackAttemptsUseCase,
-    requestResetUseCase, verifyOtpUseCase, federatedSignInUseCase,
+    registerUseCase,
+    logoutUseCase,
+    trackAttemptsUseCase,
+    requestResetUseCase,
+    verifyOtpUseCase,
+    federatedSignInUseCase,
+    appleCallbackUseCase,
+    appleRevokeUseCase,
+    appleClient,
   ),
 };

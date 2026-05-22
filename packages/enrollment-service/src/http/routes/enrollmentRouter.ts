@@ -1,6 +1,7 @@
-import { Router }                  from 'express';
-import { authenticate, authorize } from '@shared/auth-middleware';
-import { container }               from '../../container';
+import { Router }                        from 'express';
+import { authenticate, authorize }       from '@shared/auth-middleware';
+import { handleQualificationUpload }     from '../middleware/qualificationUpload';
+import { container }                     from '../../container';
 
 export const enrollmentRouter = Router();
 
@@ -26,9 +27,17 @@ enrollmentRouter.post('/admin/enrollments/:id/reject',   authenticate(), authori
 enrollmentRouter.post('/enrollments/:id/reject',         authenticate(), authorize('admin'), container.enrollmentController.rejectAdmin);        // V2 alias
 
 // Role Requests — V2 (member requests student role)
-enrollmentRouter.post('/role-requests',              authenticate(), authorize('member'),                                                   container.roleRequestController.create);
-enrollmentRouter.get( '/role-requests/mine',         authenticate(), authorize('member', 'student', 'leader', 'g12', 'admin', 'super_admin'), container.roleRequestController.mine);
-enrollmentRouter.get( '/role-requests',              authenticate(), authorize('admin'), container.roleRequestController.list);
-enrollmentRouter.get( '/role-requests/:id',          authenticate(), authorize('admin', 'super_admin'), container.roleRequestController.getOne);
-enrollmentRouter.post('/role-requests/:id/approve',  authenticate(), authorize('admin'), container.roleRequestController.approve);
-enrollmentRouter.post('/role-requests/:id/reject',   authenticate(), authorize('admin'), container.roleRequestController.reject);
+// POST uses multipart/form-data — handleQualificationUpload parses the file before the controller
+enrollmentRouter.post('/role-requests',                        authenticate(), authorize('member'), handleQualificationUpload, container.roleRequestController.create);
+enrollmentRouter.get( '/role-requests/mine',                   authenticate(), authorize('member', 'student', 'leader', 'g12', 'admin', 'super_admin'), container.roleRequestController.mine);
+enrollmentRouter.get( '/role-requests',                        authenticate(), authorize('admin'), container.roleRequestController.list);
+enrollmentRouter.get( '/role-requests/:id/qualification',      authenticate(), authorize('admin', 'super_admin'), container.roleRequestController.getQualification);
+// Any authenticated user may call this; ownership enforced inside the controller
+// (admin/super_admin see any request; all other roles see their own only → 403 otherwise)
+enrollmentRouter.get( '/role-requests/:id',
+  authenticate(),
+  authorize('member', 'student', 'leader', 'g12', 'admin', 'super_admin'),
+  container.roleRequestController.getOne,
+);
+enrollmentRouter.post('/role-requests/:id/approve',            authenticate(), authorize('admin'), container.roleRequestController.approve);
+enrollmentRouter.post('/role-requests/:id/reject',             authenticate(), authorize('admin'), container.roleRequestController.reject);

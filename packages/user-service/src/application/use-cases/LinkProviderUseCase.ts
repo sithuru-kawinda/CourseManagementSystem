@@ -13,7 +13,12 @@ export class LinkProviderUseCase {
     if (!user) throw createHttpError(404, 'USER_NOT_FOUND', 'User not found.');
 
     // Verify the federated token via auth-service internal endpoint
-    const payload = await this.authClient.verifyFederatedToken(provider, idToken);
+    let payload: Awaited<ReturnType<typeof this.authClient.verifyFederatedToken>>;
+    try {
+      payload = await this.authClient.verifyFederatedToken(provider, idToken);
+    } catch {
+      throw createHttpError(401, 'INVALID_FEDERATED_TOKEN', 'Could not verify the federated identity token.');
+    }
 
     // Confirm the token email matches the user's account (security check)
     if (payload.email.toLowerCase() !== user.email.toLowerCase()) {

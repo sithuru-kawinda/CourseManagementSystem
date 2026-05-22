@@ -2,11 +2,11 @@
 ## The Christian Center Rathmalana · `tccr-backend`
 ### REST API · Version 2.4.0 · Base URL: `https://api.tccr.lk/api/v1`
 
-**Version:** 2.4.0
-**Date:** 21 May 2026
+**Version:** 2.5.0
+**Date:** 22 May 2026
 **Organisation:** Future CX Lanka (Pvt) Ltd
 **Status:** Release Baseline
-**Supersedes:** Version 2.3.0 (17 May 2026)
+**Supersedes:** Version 2.4.0 (21 May 2026)
 
 ---
 
@@ -21,8 +21,10 @@
 4. [User Management — Admin](#4-user-management--admin)
    - 4.1 [List Users](#41-get-users) · 4.2 [Get User](#42-get-usersuid) · 4.3 [Assign Roles](#43-patch-usersuidroles--new-v2)
    - 4.4 [User Audit Log](#44-get-usersuidaudit-log--new-v2) · 4.5 [Suspend](#45-post-usersusidsuspend) · 4.6 [Reactivate](#46-post-usersuidreactivate)
-   - 4.7 [Provision Leader/G12 User (with welcome email)](#47-post-users--new) · 4.8 [Promote Existing User](#48-post-usersuidpromote--new-v2)
+   - 4.7 [Provision Leader/G12 User (with welcome email)](#47-post-users--new) · 4.8 [Promote Existing User](#48-post-usersuidpromote--new-v2) · 4.9 [Delete User ★](#49-delete-usersuid--new)
 5. [Role Requests — NEW V2](#5-role-requests--new-v2)
+   - 5.1 [Submit Role Request (multipart)](#51-post-role-requests) · 5.2 [My Requests](#52-get-role-requestsmine) · 5.3 [Admin List](#53-get-role-requests)
+   - 5.4 [Get Request](#54-get-role-requestsid) · 5.5 [Download Qualification PDF ★](#55-get-role-requestsidqualification) · 5.6 [Approve](#56-post-role-requestsidapprove) · 5.7 [Reject](#57-post-role-requestsidreject)
 6. [Course Endpoints](#6-course-endpoints)
    - 6.1–6.7 [List/Get/Create/Update/Publish/Unpublish/Archive](#61-get-courses)
    - 6.8 [Restore Course](#68-post-coursesidrestore) · 6.9 [Delete Course](#69-delete-coursesid)
@@ -722,6 +724,49 @@ Promote an **already-registered** user to `leader` or `g12`. Unlike `POST /users
 
 ---
 
+### 4.9 `DELETE /users/:uid` ★ NEW
+
+Soft-delete a regular (non-admin) user account. Sets `deletedAt` in Firestore and disables the Firebase Auth account so the user can no longer sign in. The record is preserved for audit purposes.
+
+> **For admin/super_admin accounts** use `DELETE /super-admin/admins/:uid` (section 18).
+
+**Authentication:** Bearer required | **Roles:** `admin`, `super_admin`
+
+**Business rules — enforced by `DeleteUserUseCase`:**
+
+| Condition | Result |
+|-----------|--------|
+| `targetUid === callerUid` | `403 FORBIDDEN` — cannot delete yourself |
+| Target not found (or already deleted) | `404 USER_NOT_FOUND` |
+| Target holds `admin` or `super_admin` role | `403 FORBIDDEN` — use `/super-admin/admins/:uid` |
+| Target is a `member`, `student`, `leader`, or `g12` | `204 No Content` — deleted |
+
+**Side effects (both execute; if `disableUser` fails the Firestore soft-delete has already committed):**
+1. `userRepo.softDelete(uid)` — sets `deletedAt` + `updatedAt` in Firestore
+2. `authClient.disableUser(uid)` — prevents future Firebase sign-ins
+
+#### Responses
+
+**`204 No Content`** — User deleted successfully. Empty response body.
+
+**`403 Forbidden`** → `FORBIDDEN`
+
+```json
+{ "error": { "code": "FORBIDDEN", "message": "You cannot delete your own account." }, "requestId": "..." }
+```
+
+```json
+{ "error": { "code": "FORBIDDEN", "message": "Admin accounts cannot be deleted through this endpoint. Use DELETE /super-admin/admins/:uid." }, "requestId": "..." }
+```
+
+**`404 Not Found`** → `USER_NOT_FOUND`
+
+```json
+{ "error": { "code": "USER_NOT_FOUND", "message": "User not found." }, "requestId": "..." }
+```
+
+---
+
 ## 5. Role Requests — NEW V2
 
 After registration every user is a **Member**. From there they can follow two paths — both require Admin/Super Admin approval:
@@ -741,7 +786,7 @@ After registration every user is a **Member**. From there they can follow two pa
 
 The Bible School path is **two separate steps**:
 
-**Step 1 — Get Student role** (this section): Member requests to become a Student. Admin/Super Admin approves → member gains `student` role. No course needed yet.
+**Step 1 — Get Student role** (this section): Member submits a role request with their personal details and education qualification PDF. Admin/Super Admin reviews and approves → member gains `student` role.
 
 **Step 2 — Enroll in a course** (Section 11): Student selects a course + batch and submits an enrollment request. Admin/Super Admin approves → student can access course content.
 
@@ -751,19 +796,29 @@ The Bible School path is **two separate steps**:
 
 ### 5.1 `POST /role-requests`
 
-Member requests to be granted the `student` role. No course or batch required at this stage — the member simply asks permission to join the Bible School. Once approved they can browse courses and enroll separately.
+Member submits an application for the `student` role. The request must include the applicant's personal profile and an education qualification PDF. Once approved the member gains the `student` role and can browse courses and enroll separately.
 
 **Authentication:** Bearer required | **Roles:** `member`
+**Content-Type:** `multipart/form-data`
 
-```json
-{
-  "requestedRole": "student"
-}
-```
+#### Request Fields
 
-| Field | Type | Required | Notes |
-|-------|------|:--------:|-------|
-| `requestedRole` | string | Yes | `"student"` only at this stage |
+| Field | Type | Required | Validation |
+|-------|------|:--------:|-----------|
+| `requestedRole` | string | Yes | `"student"` only |
+| `firstName` | string | Yes | 1–100 chars |
+| `lastName` | string | Yes | 1–100 chars |
+| `phoneNumber` | string | Yes | 5–30 chars |
+| `email` | string | Yes | Valid email address |
+| `dateOfBirth` | string | Yes | `YYYY-MM-DD` |
+| `gender` | string | Yes | `male` \| `female` \| `other` |
+| `address` | string | Yes | 1–500 chars |
+| `qualificationTitle` | string | Yes | 1–200 chars — descriptive title for the PDF (e.g. `"BSc Computer Science"`) |
+| `qualificationFile` | file | Yes | PDF only · max **10 MB** · field name `qualificationFile` |
+
+> All non-file fields are form fields (strings), not JSON. Send as `multipart/form-data` — do **not** use `application/json`.
+
+#### Responses
 
 **`201 Created`**
 ```json
@@ -772,17 +827,49 @@ Member requests to be granted the `student` role. No course or batch required at
   "requesterUid":  "Xf3aBC...",
   "requestedRole": "student",
   "status":        "pending",
-  "createdAt":     "2026-05-15T09:00:00.000Z"
+  "applicantProfile": {
+    "firstName":   "John",
+    "lastName":    "Doe",
+    "phoneNumber": "+94771234567",
+    "email":       "john@example.com",
+    "dateOfBirth": "2000-06-15",
+    "gender":      "male",
+    "address":     "123 Main St, Colombo"
+  },
+  "qualificationTitle":       "BSc Computer Science",
+  "qualificationStoragePath": "qualifications/Xf3aBC.../req-001.pdf",
+  "decidedByUid":  null,
+  "decisionNote":  null,
+  "createdAt":     "2026-05-22T09:00:00.000Z",
+  "decidedAt":     null
 }
 ```
 
-**`409 Conflict`** → `ROLE_REQUEST_PENDING` — a pending request already exists for this role
+**`400 Bad Request`** → `VALIDATION_ERROR` — missing required field or invalid value
+```json
+{ "error": { "code": "VALIDATION_ERROR", "message": "dateOfBirth: Must be YYYY-MM-DD" }, "requestId": "..." }
+```
+
+**`409 Conflict`** → `ROLE_REQUEST_PENDING` — a pending request already exists
+```json
+{ "error": { "code": "ROLE_REQUEST_PENDING", "message": "You already have a pending role request." }, "requestId": "..." }
+```
+
+**`413 Payload Too Large`** → `FILE_TOO_LARGE` — qualification PDF exceeds 10 MB
+```json
+{ "error": { "code": "FILE_TOO_LARGE", "message": "Qualification file must be 10 MB or smaller." }, "requestId": "..." }
+```
+
+**`415 Unsupported Media Type`** → `UNSUPPORTED_MEDIA_TYPE` — file is not a PDF
+```json
+{ "error": { "code": "UNSUPPORTED_MEDIA_TYPE", "message": "Only PDF files are accepted for qualifications." }, "requestId": "..." }
+```
 
 ---
 
 ### 5.2 `GET /role-requests/mine`
 
-List own requests with reviewer name and decision note (FR-MEM-004).
+List own role requests (FR-MEM-004).
 
 **Authentication:** Bearer required | **Roles:** `member`+
 
@@ -790,13 +877,24 @@ List own requests with reviewer name and decision note (FR-MEM-004).
 ```json
 {
   "items": [{
-    "id":              "req-001",
-    "requestedRole":   "student",
-    "status":          "pending",
-    "createdAt":       "2026-05-15T09:00:00.000Z",
-    "decidedAt":       null,
-    "decisionByName":  null,
-    "decisionNote":    null
+    "id":            "req-001",
+    "requestedRole": "student",
+    "status":        "pending",
+    "applicantProfile": {
+      "firstName":   "John",
+      "lastName":    "Doe",
+      "phoneNumber": "+94771234567",
+      "email":       "john@example.com",
+      "dateOfBirth": "2000-06-15",
+      "gender":      "male",
+      "address":     "123 Main St, Colombo"
+    },
+    "qualificationTitle":       "BSc Computer Science",
+    "qualificationStoragePath": "qualifications/Xf3aBC.../req-001.pdf",
+    "decidedByUid":  null,
+    "decisionNote":  null,
+    "createdAt":     "2026-05-22T09:00:00.000Z",
+    "decidedAt":     null
   }],
   "nextCursor": null, "total": 1
 }
@@ -806,32 +904,98 @@ List own requests with reviewer name and decision note (FR-MEM-004).
 
 ### 5.3 `GET /role-requests`
 
-List all requests in the admin queue.
+List all requests in the admin review queue.
 
 **Authentication:** Bearer required | **Roles:** `admin`, `super_admin`
 
 | Parameter | Description |
 |-----------|-------------|
 | `status` | `pending` \| `approved` \| `rejected` |
-| `courseId`, `batchId` | Filter |
-| `search` | Partial match on requester name/email |
 | `limit`, `cursor` | Pagination |
 
-**`200 OK`** — Paginated RoleRequest list with requester name/email embedded.
+**`200 OK`** — Paginated RoleRequest list. Each item includes the full `applicantProfile` object, `qualificationTitle`, and `qualificationStoragePath`.
 
 ---
 
-### 5.4 `GET /role-requests/:id`
+### 5.4 `GET /role-requests/:id` ★ Updated
+
+Get a single role request including full applicant details.
+
+**Authentication:** Bearer required | **Roles:** Any authenticated (`member`, `student`, `leader`, `g12`, `admin`, `super_admin`)
+
+**Ownership rule** — enforced by `GetRoleRequestByIdUseCase`:
+
+| Caller | Access |
+|--------|--------|
+| `admin` / `super_admin` | May fetch **any** role request |
+| All other roles | May only fetch requests where `roleRequest.requesterUid === caller UID` → `403` otherwise |
+
+#### Responses
+
+**`200 OK`** — Full RoleRequest object (same shape as items in section 5.2):
+
+```json
+{
+  "id":            "req-001",
+  "requesterUid":  "Xf3aBC...",
+  "requestedRole": "student",
+  "status":        "pending",
+  "applicantProfile": {
+    "firstName":   "John",
+    "lastName":    "Doe",
+    "phoneNumber": "+94771234567",
+    "email":       "john@example.com",
+    "dateOfBirth": "2000-06-15",
+    "gender":      "male",
+    "address":     "123 Main St, Colombo"
+  },
+  "qualificationTitle":       "BSc Computer Science",
+  "qualificationStoragePath": "qualifications/Xf3aBC.../req-001.pdf",
+  "decidedByUid":  null,
+  "decisionNote":  null,
+  "createdAt":     "2026-05-22T09:00:00.000Z",
+  "decidedAt":     null
+}
+```
+
+**`403 Forbidden`** → `FORBIDDEN` — non-admin caller tried to view another user's request
+
+```json
+{ "error": { "code": "FORBIDDEN", "message": "You can only view your own role requests." }, "requestId": "..." }
+```
+
+**`404 Not Found`** → `ROLE_REQUEST_NOT_FOUND`
+
+```json
+{ "error": { "code": "ROLE_REQUEST_NOT_FOUND", "message": "Role request not found." }, "requestId": "..." }
+```
+
+---
+
+### 5.5 `GET /role-requests/:id/qualification` ★ NEW
+
+Generate a **15-minute signed URL** for the applicant's qualification PDF. The file is never publicly accessible — every download requires a fresh signed URL from this endpoint.
 
 **Authentication:** Bearer required | **Roles:** `admin`, `super_admin`
 
-**`200 OK`** — RoleRequest object. | **`404`** → `ROLE_REQUEST_NOT_FOUND`
+**`200 OK`**
+```json
+{
+  "signedUrl":          "https://storage.googleapis.com/bucket/qualifications/...?X-Goog-Signature=...",
+  "expiresAt":          "2026-05-22T10:15:00.000Z",
+  "qualificationTitle": "BSc Computer Science"
+}
+```
+
+> The signed URL expires after **15 minutes**. Re-call this endpoint to get a fresh URL if needed.
+
+**`404 Not Found`** → `ROLE_REQUEST_NOT_FOUND`
 
 ---
 
-### 5.5 `POST /role-requests/:id/approve`
+### 5.6 `POST /role-requests/:id/approve`
 
-Grants the requested role — adds `student` to `roles[]` and updates Firebase custom claims. Notifies the requestor with the approver's name. **Does not create a course enrollment** — the student must separately apply for a course batch via `POST /enrollments`.
+Grants the requested role — adds `student` to `roles[]` and updates Firebase custom claims atomically. Notifies the requestor. **Does not create a course enrollment** — the student must separately apply for a course batch via `POST /enrollments`.
 
 **Authentication:** Bearer required | **Roles:** `admin`, `super_admin`
 
@@ -850,13 +1014,13 @@ Grants the requested role — adds `student` to `roles[]` and updates Firebase c
 }
 ```
 
-**`409 Conflict`** → `INVALID_STATE` (request already decided)
+**`409 Conflict`** → `INVALID_STATE` — request already decided
 
 ---
 
-### 5.6 `POST /role-requests/:id/reject`
+### 5.7 `POST /role-requests/:id/reject`
 
-Notifies requestor (FR-ENR-005).
+Rejects the role application and notifies the requestor (FR-ENR-005).
 
 **Authentication:** Bearer required | **Roles:** `admin`, `super_admin`
 
@@ -2297,14 +2461,29 @@ Readiness probe.
 |-------|------|-------|
 | `id` | string | Auto UUID |
 | `requesterUid` | string | FK → users |
-| `requestedRole` | string | `student` |
-| `courseId` | string | FK → courses |
-| `batchId` | string | FK → batches |
+| `requestedRole` | string | `"student"` — only value at this stage |
 | `status` | string | `pending` \| `approved` \| `rejected` |
-| `decisionByUid` | string or null | |
-| `decisionNote` | string or null | |
+| `applicantProfile` | ApplicantProfile | Nested object — see below ★ |
+| `qualificationTitle` | string | Admin-visible label for the qualification PDF |
+| `qualificationStoragePath` | string | Internal Firebase Storage path — use `GET /role-requests/:id/qualification` to obtain a signed URL |
+| `decidedByUid` | string or null | UID of admin who approved/rejected |
+| `decisionNote` | string or null | Optional note from the reviewer |
 | `createdAt` | string | ISO 8601 |
-| `decidedAt` | string or null | ISO 8601 |
+| `decidedAt` | string or null | ISO 8601 — set when status changes from `pending` |
+
+#### ApplicantProfile ★ NEW
+
+Nested inside `RoleRequest.applicantProfile`. All fields are provided by the member at submission time.
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `firstName` | string | 1–100 chars |
+| `lastName` | string | 1–100 chars |
+| `phoneNumber` | string | 5–30 chars |
+| `email` | string | Valid email address |
+| `dateOfBirth` | string | `YYYY-MM-DD` |
+| `gender` | string | `male` \| `female` \| `other` |
+| `address` | string | 1–500 chars |
 
 ---
 
@@ -2567,7 +2746,7 @@ Readiness probe.
 | `INVALID_OTP` | 400 | OTP invalid or not found |
 | `OTP_EXPIRED` | 400 | OTP has passed its 15-minute expiry |
 | `OTP_MAX_ATTEMPTS` | 400 | Too many incorrect OTP attempts |
-| `FILE_TOO_LARGE` | 400 | File exceeds size limit |
+| `FILE_TOO_LARGE` | 413 | File exceeds the size limit for that endpoint |
 | `MISSING_TOKEN` | 401 | Authorization header absent |
 | `INVALID_TOKEN` | 401 | Token expired, revoked, or malformed |
 | `TOKEN_REVOKED` | 401 | Session has been revoked |
@@ -2620,6 +2799,7 @@ Readiness probe.
 | `204` | No Content | Successful DELETE; logout; change-password; mark-all-read |
 | `400` | Bad Request | Validation failure; invalid OTP |
 | `401` | Unauthorized | Missing, expired, or revoked token |
+| `413` | Payload Too Large | Uploaded file exceeds the size limit for that endpoint |
 | `403` | Forbidden | Valid token; wrong role; ownership mismatch; semester disabled |
 | `404` | Not Found | Resource not found; draft/archived course accessed by student |
 | `409` | Conflict | Duplicate; invalid state transition; last super admin |
@@ -2683,4 +2863,4 @@ Events published to the `outbox` Firestore collection and dispatched by the Outb
 ---
 
 *© 2026 Future CX Lanka (Pvt) Ltd — Confidential*
-*Document version: 2.0.0 | Paired with TCCR SRS v2.0 dated 15 May 2026 and TCCR Backend Blueprint v2.0.0*
+*Document version: 2.5.0 | Paired with TCCR SRS v2.0 dated 15 May 2026 and TCCR Backend Blueprint v2.0.0*

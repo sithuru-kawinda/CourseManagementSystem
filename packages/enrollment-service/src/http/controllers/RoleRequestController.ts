@@ -1,34 +1,60 @@
-import { Request, Response, NextFunction } from 'express';
-import { AuthenticatedRequest }             from '@shared/auth-middleware';
-import { fromZodError, createHttpError }    from '@shared/errors';
-import { sendSuccess, sendPaginated }       from '@shared/response';
-import { IRoleRequestRepository }           from '../../domain/repositories/IRoleRequestRepository';
-import { CreateRoleRequestUseCase }         from '../../application/use-cases/CreateRoleRequestUseCase';
-import { ApproveRoleRequestUseCase }        from '../../application/use-cases/ApproveRoleRequestUseCase';
-import { RejectRoleRequestUseCase }         from '../../application/use-cases/RejectRoleRequestUseCase';
-import { GetRoleRequestsUseCase }           from '../../application/use-cases/GetRoleRequestsUseCase';
-import { GetMyRoleRequestsUseCase }         from '../../application/use-cases/GetMyRoleRequestsUseCase';
-import { createRoleRequestSchema, decideRoleRequestSchema, listRoleRequestsSchema } from '../validators/roleRequestValidator';
+import { Request, Response, NextFunction }          from 'express';
+import { AuthenticatedRequest }                       from '@shared/auth-middleware';
+import { fromZodError }                               from '@shared/errors';
+import { sendSuccess, sendPaginated }                 from '@shared/response';
+import { CreateRoleRequestUseCase }                  from '../../application/use-cases/CreateRoleRequestUseCase';
+import { ApproveRoleRequestUseCase }                 from '../../application/use-cases/ApproveRoleRequestUseCase';
+import { RejectRoleRequestUseCase }                  from '../../application/use-cases/RejectRoleRequestUseCase';
+import { GetRoleRequestsUseCase }                    from '../../application/use-cases/GetRoleRequestsUseCase';
+import { GetMyRoleRequestsUseCase }                  from '../../application/use-cases/GetMyRoleRequestsUseCase';
+import { GetRoleRequestQualificationUseCase }        from '../../application/use-cases/GetRoleRequestQualificationUseCase';
+import { GetRoleRequestByIdUseCase }                 from '../../application/use-cases/GetRoleRequestByIdUseCase';
+import {
+  createRoleRequestSchema,
+  decideRoleRequestSchema,
+  listRoleRequestsSchema,
+} from '../validators/roleRequestValidator';
 
 export class RoleRequestController {
   constructor(
-    private readonly createUseCase:   CreateRoleRequestUseCase,
-    private readonly approveUseCase:  ApproveRoleRequestUseCase,
-    private readonly rejectUseCase:   RejectRoleRequestUseCase,
-    private readonly listUseCase:     GetRoleRequestsUseCase,
-    private readonly myListUseCase:   GetMyRoleRequestsUseCase,
-    private readonly roleRequestRepo: IRoleRequestRepository,
+    private readonly createUseCase:        CreateRoleRequestUseCase,
+    private readonly approveUseCase:       ApproveRoleRequestUseCase,
+    private readonly rejectUseCase:        RejectRoleRequestUseCase,
+    private readonly listUseCase:          GetRoleRequestsUseCase,
+    private readonly myListUseCase:        GetMyRoleRequestsUseCase,
+    private readonly qualificationUseCase: GetRoleRequestQualificationUseCase,
+    private readonly getByIdUseCase:       GetRoleRequestByIdUseCase,
   ) {}
 
-  // Member: POST /role-requests
+  // Member: POST /role-requests  (multipart/form-data)
   create = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
+      // req.file is guaranteed by handleQualificationUpload middleware
+      const file = req.file!;
+
       const parsed = createRoleRequestSchema.safeParse(req.body);
       if (!parsed.success) return next(fromZodError(parsed.error));
 
-      const { uid } = (req as AuthenticatedRequest).principal;
+      const { uid }   = (req as AuthenticatedRequest).principal;
       const requestId = (req.headers['x-request-id'] as string) ?? '';
-      const result = await this.createUseCase.execute(uid, requestId);
+
+      const result = await this.createUseCase.execute(
+        {
+          requesterUid:       uid,
+          requestedRole:      'student',
+          firstName:          parsed.data.firstName,
+          lastName:           parsed.data.lastName,
+          phoneNumber:        parsed.data.phoneNumber,
+          email:              parsed.data.email,
+          dateOfBirth:        parsed.data.dateOfBirth,
+          gender:             parsed.data.gender,
+          address:            parsed.data.address,
+          qualificationTitle: parsed.data.qualificationTitle,
+          qualificationFile:  { buffer: file.buffer, mimeType: file.mimetype },
+        },
+        requestId,
+      );
+
       sendSuccess(res, result, 201);
     } catch (err) { next(err); }
   };
@@ -53,14 +79,29 @@ export class RoleRequestController {
     } catch (err) { next(err); }
   };
 
-  // Admin: GET /role-requests/:id  (§5.4 V2 spec)
+  // GET /role-requests/:id
+  // Admin / super_admin: see any request.
+  // Member (or any other non-admin role): can only see their own request — 403 for others.
   getOne = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const roleRequest = await this.roleRequestRepo.findById(req.params.id);
-      if (!roleRequest) {
-        return next(createHttpError(404, 'ROLE_REQUEST_NOT_FOUND', 'Role request not found.'));
-      }
+      const { uid, roles } = (req as AuthenticatedRequest).principal;
+      const isAdmin = roles.includes('admin') || roles.includes('super_admin');
+
+      const roleRequest = await this.getByIdUseCase.execute({
+        id:           req.params.id,
+        requesterUid: uid,
+        isAdmin,
+      });
+
       sendSuccess(res, roleRequest);
+    } catch (err) { next(err); }
+  };
+
+  // Admin: GET /role-requests/:id/qualification  → 15-min signed URL
+  getQualification = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const result = await this.qualificationUseCase.execute(req.params.id);
+      sendSuccess(res, result);
     } catch (err) { next(err); }
   };
 
