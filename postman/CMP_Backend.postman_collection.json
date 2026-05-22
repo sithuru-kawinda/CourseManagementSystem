@@ -382,7 +382,7 @@
       "item": [
         {
           "id": "c62cd709-b9e2-40c8-a409-2613920a3266",
-          "name": "Register New Member",
+          "name": "Register New Member — 201 (welcome email queued)",
           "request": {
             "method": "POST",
             "header": [
@@ -393,7 +393,81 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"firstName\": \"New\",\n  \"lastName\": \"Member\",\n  \"email\": \"newmember{{runId}}@test.com\",\n  \"password\": \"Member@Tccr2026\",\n  \"preferredLanguage\": \"en\"\n}",
+              "raw": "{\n  \"firstName\": \"New\",\n  \"lastName\": \"Member\",\n  \"email\": \"newmember{{runId}}@test.com\",\n  \"password\": \"Member@Tccr2026!\",\n  \"preferredLanguage\": \"en\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/register",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "register"
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+                "type": "text/javascript",
+                "exec": [
+                  "// Ensure runId is set so email is unique per collection run",
+                  "if (!pm.environment.get(\"runId\")) {",
+                  "  pm.environment.set(\"runId\", Date.now().toString().slice(-6));",
+                  "}"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "id": "670ab1dc-ca82-4505-bac7-c38c9886a42e",
+                "type": "text/javascript",
+                "exec": [
+                  "// ── Happy path: new member registered immediately (V2 — no approval queue) ──",
+                  "pm.test(\"201 Created — Register New Member\", () => pm.response.to.have.status(201));",
+                  "const j = pm.response.json();",
+                  "pm.test(\"uid is a non-empty string\", () => pm.expect(j.uid).to.be.a(\"string\").and.not.empty);",
+                  "pm.test(\"message confirms active member\", () => {",
+                  "  pm.expect(j.message).to.be.a(\"string\");",
+                  "  pm.expect(j.message.toLowerCase()).to.satisfy(m => m.includes(\"active\") || m.includes(\"success\") || m.includes(\"member\"));",
+                  "});",
+                  "pm.test(\"response time under 3000ms\", () => pm.expect(pm.response.responseTime).to.be.below(3000));",
+                  "// Save UID for downstream tests (suspend, delete, promote, etc.)",
+                  "if (j.uid) { pm.environment.set(\"registeredUid\", j.uid); }",
+                  "// NOTE: a welcome email is dispatched asynchronously by the outbox-worker (~5 s).",
+                  "// Email subject: 'Welcome to TCCR — Your Account is Active'",
+                  "// Email contains: full name, email address, password, 'Log in to TCCR →' button."
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "id": "d2e3f4a5-b6c7-8901-bcde-f23456789012",
+          "name": "Register — Duplicate Email (expect 409 EMAIL_EXISTS)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"firstName\": \"New\",\n  \"lastName\": \"Member\",\n  \"email\": \"newmember{{runId}}@test.com\",\n  \"password\": \"Member@Tccr2026!\",\n  \"preferredLanguage\": \"en\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -419,12 +493,226 @@
             {
               "listen": "test",
               "script": {
-                "id": "670ab1dc-ca82-4505-bac7-c38c9886a42e",
+                "id": "e3f4a5b6-c7d8-9012-cdef-345678901234",
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test(\"201 or 409 — Register (409 = email exists from prior run)\", () => { pm.expect([201,409]).to.include(pm.response.code); });",
+                  "// Same email as previous request — must return 409",
+                  "pm.test(\"409 Conflict — duplicate email returns EMAIL_EXISTS\", () => pm.response.to.have.status(409));",
                   "const j = pm.response.json();",
-                  "if (j.uid) { pm.environment.set(\"registeredUid\", j.uid); }"
+                  "pm.test(\"error.code is EMAIL_EXISTS\", () => pm.expect(j.error.code).to.equal(\"EMAIL_EXISTS\"));",
+                  "pm.test(\"error.message mentions email\", () => pm.expect(j.error.message.toLowerCase()).to.include(\"email\"));",
+                  "pm.test(\"requestId is present in root\", () => pm.expect(j.requestId).to.be.a(\"string\").and.not.empty);",
+                  "pm.test(\"no uid in error response\", () => pm.expect(j.uid).to.be.undefined);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "id": "f4a5b6c7-d8e9-0123-def0-456789012345",
+          "name": "Register — Weak Password (expect 400 VALIDATION_ERROR)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"firstName\": \"Test\",\n  \"lastName\": \"User\",\n  \"email\": \"weakpwd{{runId}}@test.com\",\n  \"password\": \"short\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/register",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "register"
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "id": "a5b6c7d8-e9f0-1234-ef01-567890123456",
+                "type": "text/javascript",
+                "exec": [
+                  "// Password 'short' fails: min 10 chars, no uppercase, no number, no special char",
+                  "pm.test(\"400 Bad Request — weak password\", () => pm.response.to.have.status(400));",
+                  "const j = pm.response.json();",
+                  "pm.test(\"error.code is VALIDATION_ERROR\", () => pm.expect(j.error.code).to.equal(\"VALIDATION_ERROR\"));",
+                  "pm.test(\"requestId is present\", () => pm.expect(j.requestId).to.be.a(\"string\").and.not.empty);",
+                  "pm.test(\"no uid created for invalid request\", () => pm.expect(j.uid).to.be.undefined);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "id": "b6c7d8e9-f0a1-2345-f012-678901234567",
+          "name": "Register — Missing Required Field firstName (expect 400)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"lastName\": \"User\",\n  \"email\": \"missingfield{{runId}}@test.com\",\n  \"password\": \"Member@Tccr2026!\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/register",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "register"
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "id": "c7d8e9f0-a1b2-3456-0123-789012345678",
+                "type": "text/javascript",
+                "exec": [
+                  "// firstName is required — omitting it must return 400",
+                  "pm.test(\"400 Bad Request — missing firstName\", () => pm.response.to.have.status(400));",
+                  "const j = pm.response.json();",
+                  "pm.test(\"error.code is VALIDATION_ERROR\", () => pm.expect(j.error.code).to.equal(\"VALIDATION_ERROR\"));",
+                  "pm.test(\"requestId is present\", () => pm.expect(j.requestId).to.be.a(\"string\").and.not.empty);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "id": "d8e9f0a1-b2c3-4567-1234-890123456789",
+          "name": "Register — Invalid Email Format (expect 400)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"firstName\": \"Test\",\n  \"lastName\": \"User\",\n  \"email\": \"not-a-valid-email\",\n  \"password\": \"Member@Tccr2026!\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/register",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "register"
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "id": "e9f0a1b2-c3d4-5678-2345-901234567890",
+                "type": "text/javascript",
+                "exec": [
+                  "// 'not-a-valid-email' fails Zod z.string().email() validation",
+                  "pm.test(\"400 Bad Request — invalid email format\", () => pm.response.to.have.status(400));",
+                  "const j = pm.response.json();",
+                  "pm.test(\"error.code is VALIDATION_ERROR\", () => pm.expect(j.error.code).to.equal(\"VALIDATION_ERROR\"));",
+                  "pm.test(\"requestId is present\", () => pm.expect(j.requestId).to.be.a(\"string\").and.not.empty);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "id": "f0a1b2c3-d4e5-6789-3456-012345678901",
+          "name": "Register with preferredLanguage=si — 201",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"firstName\": \"Sithumi\",\n  \"lastName\": \"Perera\",\n  \"email\": \"sithumi{{runId}}@test.com\",\n  \"password\": \"Sithumi@Tccr2026!\",\n  \"preferredLanguage\": \"si\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/register",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "register"
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "id": "a1b2c3d4-e5f6-7891-4567-123456789012",
+                "type": "text/javascript",
+                "exec": [
+                  "// preferredLanguage='si' (Sinhala) is stored on the user doc",
+                  "// Welcome email still dispatched (language stored for future i18n)",
+                  "pm.test(\"201 Created — Register with preferredLanguage=si\", () => pm.response.to.have.status(201));",
+                  "const j = pm.response.json();",
+                  "pm.test(\"uid is returned\", () => pm.expect(j.uid).to.be.a(\"string\").and.not.empty);",
+                  "pm.test(\"message is returned\", () => pm.expect(j.message).to.be.a(\"string\").and.not.empty);"
                 ]
               }
             }

@@ -2,11 +2,11 @@
 ## The Christian Center Rathmalana · `tccr-backend`
 ### REST API · Version 2.4.0 · Base URL: `https://api.tccr.lk/api/v1`
 
-**Version:** 2.5.0
+**Version:** 2.6.0
 **Date:** 22 May 2026
 **Organisation:** Future CX Lanka (Pvt) Ltd
 **Status:** Release Baseline
-**Supersedes:** Version 2.4.0 (21 May 2026)
+**Supersedes:** Version 2.5.0 (22 May 2026)
 
 ---
 
@@ -195,7 +195,8 @@ Roles are **additive** — a user holds multiple roles simultaneously (e.g. `["m
 
 Register a new account. **V2:** Creates an **active Member** immediately — no approval queue. V1 created a `pending_approval` Student.
 
-**Authentication:** None (public)
+**Authentication:** None (public)  
+**Content-Type:** `application/json`
 
 #### Request Body
 
@@ -204,7 +205,7 @@ Register a new account. **V2:** Creates an **active Member** immediately — no 
   "firstName":         "Viruli",
   "lastName":          "Weerasinghe",
   "email":             "viruli@example.com",
-  "password":          "SecurePass1",
+  "password":          "SecurePass1@",
   "preferredLanguage": "si"
 }
 ```
@@ -213,26 +214,66 @@ Register a new account. **V2:** Creates an **active Member** immediately — no 
 |-------|------|:--------:|-----------|
 | `firstName` | string | Yes | 1–100 chars |
 | `lastName` | string | Yes | 1–100 chars |
-| `email` | string | Yes | Valid email; unique |
-| `password` | string | Yes | Min 10 chars · uppercase · lowercase · number · special char |
-| `preferredLanguage` | string | No | `si` \| `ta` \| `en` — defaults to `en` |
+| `email` | string | Yes | Valid RFC-5322 email · must be unique |
+| `password` | string | Yes | Min **10 chars** · ≥1 uppercase · ≥1 lowercase · ≥1 digit · ≥1 special char |
+| `preferredLanguage` | string | No | `"en"` \| `"si"` \| `"ta"` — defaults to `"en"` |
+
+#### Side Effects (on `201`)
+
+| Step | Detail |
+|------|--------|
+| 1 | Firebase Auth account created with the supplied email + password |
+| 2 | Firebase custom claims set: `{ role: "member", roles: ["member"] }` |
+| 3 | Firestore user doc created: `status: "approved"`, `roles: ["member"]` |
+| 4 | `user.registered` event published to the outbox |
+| 5 | Outbox-worker dispatches (~5 s) → **`UserRegisteredHandler`** runs: |
+|   | &nbsp;&nbsp;• In-app notification to all Admins: *"New Member Joined"* |
+|   | &nbsp;&nbsp;• **Welcome email** sent to the registrant (see below) |
+
+#### Welcome Email
+
+| Field | Value |
+|-------|-------|
+| **To** | Registered email address |
+| **Subject** | `Welcome to TCCR — Your Account is Active` |
+| **Greeting** | `Hi <firstName> <lastName>,` |
+| **Credentials table** | Email address + plain-text password |
+| **Warning** | ⚠ Prompt to change password after first login |
+| **Login button** | `Log in to TCCR →` — links to `APP_URL` env var (default `https://tccr.lk`) |
+| **Footer** | Security note: contact support if account was not created by the user |
+
+> **Environment variable:** Set `APP_URL=https://your-domain.com` in the notification-service and auth-service `.env` to control the login link. Defaults to `https://tccr.lk`.
+>
+> **Email delivery:** Configured via `EMAIL_PROVIDER` (`sendgrid` \| `smtp` \| `console`). Delivery is retried 3× with 1 s → 2 s → 4 s backoff. A delivery failure is logged but never surfaces to the client — `201` is always returned if account creation succeeds.
 
 #### Responses
 
 **`201 Created`**
 ```json
-{ "uid": "Xf3aBC...", "message": "Registration successful. Please verify your email." }
+{ "uid": "Xf3aBC...", "message": "Registration successful. You are now an active member." }
 ```
 
-> **Welcome email (sent immediately on `201`):** The new member receives an email at the registered address containing:
-> - Full name greeting
-> - Credentials table — **Email** and **Password**
-> - ⚠ Prompt to change password after first login
-> - **"Log in to TCCR →"** button linking to the system URL (`APP_URL`)
->
-> Email subject: `Welcome to TCCR — Your Account is Active`
+**`400 Bad Request`** — Zod validation failure (missing field, weak password, invalid email)
+```json
+{
+  "error": { "code": "VALIDATION_ERROR", "message": "password: Password must be at least 10 characters." },
+  "requestId": "..."
+}
+```
 
-**`409 Conflict`**
+| Validation Rule | Error message |
+|----------------|--------------|
+| `firstName` missing or empty | `firstName: Required` |
+| `lastName` missing or empty | `lastName: Required` |
+| `email` not valid RFC-5322 | `email: Invalid email` |
+| `password` < 10 chars | `password: Password must be at least 10 characters.` |
+| `password` missing uppercase | `password: Password must contain an uppercase letter.` |
+| `password` missing lowercase | `password: Password must contain a lowercase letter.` |
+| `password` missing digit | `password: Password must contain a number.` |
+| `password` missing special char | `password: Password must contain a special character.` |
+| `preferredLanguage` not `en`/`si`/`ta` | `preferredLanguage: Invalid enum value` |
+
+**`409 Conflict`** — Email already registered (checked against both user-service and Firebase Auth)
 ```json
 { "error": { "code": "EMAIL_EXISTS", "message": "Email address already registered." }, "requestId": "..." }
 ```
