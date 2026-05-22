@@ -5049,7 +5049,7 @@
         },
         {
           "id": "9cbacda2-d50a-4764-be89-3cc7b96b28d5",
-          "name": "Reject Enrollment",
+          "name": "Reject Enrollment (rejection email queued)",
           "request": {
             "method": "POST",
             "header": [
@@ -5060,7 +5060,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"reason\": \"Enrollment rejected for testing.\"\n}",
+              "raw": "{\n  \"reason\": \"We have reached the maximum capacity for this intake. Please apply for the next available batch.\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -5098,9 +5098,16 @@
                 "id": "00fa43cf-c2dc-48c4-9912-7b7459ea67c7",
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test(\"200 or 404 or 409 — Reject Enrollment (409 = already decided)\", () => {",
-                  "  pm.expect([200, 404, 409]).to.include(pm.response.code);",
-                  "});"
+                  "// ── Reject enrollment — triggers rejection email to student (~5 s via outbox-worker) ──",
+                  "pm.test(\"200 OK — Reject Enrollment\", () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json();",
+                  "pm.test(\"state is rejected\", () => pm.expect(j.state).to.equal(\"rejected\"));",
+                  "pm.test(\"rejectedAt is set\", () => pm.expect(j.rejectedAt).to.be.a(\"string\").and.not.empty);",
+                  "pm.test(\"reason is stored\", () => pm.expect(j.reason).to.be.a(\"string\").and.not.empty);",
+                  "pm.test(\"studentUid is present\", () => pm.expect(j.studentUid).to.be.a(\"string\").and.not.empty);",
+                  "// NOTE: rejection email dispatched asynchronously (~5 s).",
+                  "// Email subject: 'Enrollment Update — <course title> — TCCR'",
+                  "// Email includes: student name greeting, course name, rejection reason block, login button."
                 ]
               }
             }

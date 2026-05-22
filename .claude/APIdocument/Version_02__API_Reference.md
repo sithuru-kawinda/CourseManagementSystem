@@ -2,11 +2,11 @@
 ## The Christian Center Rathmalana · `tccr-backend`
 ### REST API · Version 2.4.0 · Base URL: `https://api.tccr.lk/api/v1`
 
-**Version:** 2.7.0
+**Version:** 2.8.0
 **Date:** 22 May 2026
 **Organisation:** Future CX Lanka (Pvt) Ltd
 **Status:** Release Baseline
-**Supersedes:** Version 2.6.0 (22 May 2026)
+**Supersedes:** Version 2.7.0 (22 May 2026)
 
 ---
 
@@ -1759,13 +1759,64 @@ Approve an enrollment. Sets `state: "approved"` on the enrollment and dispatches
 
 ### 11.6 `POST /enrollments/:id/reject`
 
-**Authentication:** Bearer required | **Roles:** `admin`, `super_admin`
+Reject an enrollment application and send a **rejection notification email** to the student.
+
+**Authentication:** Bearer required | **Roles:** `admin`, `super_admin`  
+**Content-Type:** `application/json`
+
+#### Request Body
 
 ```json
-{ "reason": "Batch capacity reached." }
+{ "reason": "We have reached the maximum capacity for this intake. Please apply for the next available batch." }
 ```
 
-**`200 OK`** — Enrollment with `status: "rejected"`.
+| Field | Type | Required | Validation |
+|-------|------|:--------:|-----------|
+| `reason` | string | No | 1–500 chars — shown in the rejection email; if omitted the email states no reason was provided |
+
+#### Side Effects (on `200`)
+
+| Step | Detail |
+|------|--------|
+| 1 | Enrollment `state` → `rejected`, `rejectedAt` timestamp set, `reason` stored |
+| 2 | `enrollment.rejected` event published to the outbox |
+| 3 | Outbox-worker dispatches (~5 s) → **`EnrollmentRejectedHandler`** runs: |
+|   | &nbsp;&nbsp;• In-app notification to the student: *"Enrollment Not Approved"* |
+|   | &nbsp;&nbsp;• **Rejection email** sent to the student's registered address (see below) |
+
+#### Rejection Email
+
+| Field | Value |
+|-------|-------|
+| **To** | Student's registered email address |
+| **Subject** | `Enrollment Update — <Course Title> — TCCR` |
+| **Greeting** | `Hi <firstName> <lastName>,` |
+| **Course table** | Course name + Status: **Not Approved** (red) |
+| **Reason block** | Red left-border callout showing the `reason` (shows "No specific reason provided" when blank) |
+| **Body** | Encouragement to contact admin or reapply in a future intake |
+| **Login button** | `Log in to TCCR →` — links to `APP_URL` (default `https://cms.bethelnet.au/login`) |
+
+#### Response
+
+**`200 OK`** — Enrollment object with `state: "rejected"`.
+
+```json
+{
+  "id": "Xf3aBC..._course-abc",
+  "studentUid": "Xf3aBC...",
+  "courseId": "course-abc",
+  "state": "rejected",
+  "reason": "Batch capacity reached.",
+  "rejectedAt": "2026-05-22T10:00:00.000Z",
+  "approvedAt": null,
+  "createdAt": "2026-05-20T09:00:00.000Z",
+  "updatedAt": "2026-05-22T10:00:00.000Z"
+}
+```
+
+**`404 Not Found`** → `ENROLLMENT_NOT_FOUND`
+
+**`409 Conflict`** → `INVALID_STATE` — enrollment is not in `pending` state
 
 ---
 

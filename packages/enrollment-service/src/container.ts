@@ -40,7 +40,7 @@ const bulkApprove = new BulkApproveRegistrationsUseCase(approveReg);
 
 const createEnroll  = new CreateEnrollmentUseCase(enrollRepo, courseClient, outbox);
 const approveEnroll = new ApproveEnrollmentUseCase(enrollRepo, outbox, userClient, courseClient);
-const rejectEnroll  = new RejectEnrollmentUseCase(enrollRepo, outbox);
+const rejectEnroll  = new RejectEnrollmentUseCase(enrollRepo, outbox, userClient, courseClient);
 const withdraw      = new WithdrawEnrollmentUseCase(enrollRepo, outbox);
 
 const createRoleReq        = new CreateRoleRequestUseCase(roleRequestRepo, outbox, storageRepo);
