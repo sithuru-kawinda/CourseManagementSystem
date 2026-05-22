@@ -1510,7 +1510,7 @@
     },
     {
       "id": "a07c149d-7b51-4f85-a312-1ffae9d30b6c",
-      "name": "3️⃣ User Service — Admin Manage Users",
+      "name": "3️⃣ User Service — User Management (Admin / Leader / G12)",
       "item": [
         {
           "id": "77f1ad84-2740-4708-a932-00371b141309",
@@ -1556,6 +1556,118 @@
                   "pm.test(\"200 OK — List Users\", () => pm.response.to.have.status(200));",
                   "const j = pm.response.json();",
                   "pm.test(\"items is array\", () => pm.expect(j.items).to.be.an(\"array\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "id": "e1a2b3c4-d5e6-f7a8-b9c0-d1e2f3a4b5c6",
+          "name": "List Users (Leader — scoped view)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/users?limit=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "20",
+                  "disabled": false
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{leaderToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "id": "a1b2c3d4-e5f6-a7b8-c9d0-e1f2a3b4c5d6",
+                "type": "text/javascript",
+                "exec": [
+                  "// Leader gets a scoped view: only approved members/students/leaders/g12 — no admin or super_admin entries",
+                  "pm.test(\"200 OK — Leader List Users (scoped)\", () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json();",
+                  "pm.test(\"items is array\", () => pm.expect(j.items).to.be.an(\"array\"));",
+                  "pm.test(\"no admin/super_admin in scoped results\", () => {",
+                  "  (j.items || []).forEach(u => {",
+                  "    pm.expect((u.roles || []).includes(\"admin\"),       `user ${u.uid} should not be admin`).to.be.false;",
+                  "    pm.expect((u.roles || []).includes(\"super_admin\"), `user ${u.uid} should not be super_admin`).to.be.false;",
+                  "  });",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "id": "f2b3c4d5-e6f7-a8b9-c0d1-e2f3a4b5c6d7",
+          "name": "List Users (G12 — scoped view)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/users?limit=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "20",
+                  "disabled": false
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{g12Token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "id": "b2c3d4e5-f6a7-b8c9-d0e1-f2a3b4c5d6e7",
+                "type": "text/javascript",
+                "exec": [
+                  "// G12 gets the same scoped view as leader: approved members/students/leaders/g12 only",
+                  "pm.test(\"200 OK — G12 List Users (scoped)\", () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json();",
+                  "pm.test(\"items is array\", () => pm.expect(j.items).to.be.an(\"array\"));",
+                  "pm.test(\"no admin/super_admin in scoped results\", () => {",
+                  "  (j.items || []).forEach(u => {",
+                  "    pm.expect((u.roles || []).includes(\"admin\"),       `user ${u.uid} should not be admin`).to.be.false;",
+                  "    pm.expect((u.roles || []).includes(\"super_admin\"), `user ${u.uid} should not be super_admin`).to.be.false;",
+                  "  });",
+                  "});"
                 ]
               }
             }
