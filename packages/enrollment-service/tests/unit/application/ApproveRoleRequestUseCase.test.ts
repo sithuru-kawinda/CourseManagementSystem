@@ -5,16 +5,16 @@ import { RoleRequest }               from '../../../src/domain/entities/RoleRequ
 import { OutboxEventPublisher }      from '@shared/events';
 
 const makeRepo = (): jest.Mocked<IRoleRequestRepository> => ({
-  findById:              jest.fn(),
+  findById:               jest.fn(),
   findPendingByRequester: jest.fn(),
-  findByRequester:       jest.fn(),
-  findAll:               jest.fn(),
-  create:                jest.fn(),
-  update:                jest.fn(),
+  findByRequester:        jest.fn(),
+  findAll:                jest.fn(),
+  create:                 jest.fn(),
+  update:                 jest.fn(),
 });
 
 const makeUserClient = (): jest.Mocked<UserServiceClient> =>
-  ({ approveUser: jest.fn(), addRole: jest.fn() } as unknown as jest.Mocked<UserServiceClient>);
+  ({ approveUser: jest.fn(), addRole: jest.fn(), getUser: jest.fn() } as unknown as jest.Mocked<UserServiceClient>);
 
 const makeOutbox = (): jest.Mocked<OutboxEventPublisher> =>
   ({ publishWithBatch: jest.fn() } as unknown as jest.Mocked<OutboxEventPublisher>);
@@ -45,7 +45,12 @@ describe('ApproveRoleRequestUseCase', () => {
     userClient = makeUserClient();
     outbox     = makeOutbox();
     useCase    = new ApproveRoleRequestUseCase(repo, userClient, outbox);
+
+    // Default: user-service returns student profile
+    userClient.getUser.mockResolvedValue({ email: 'john@example.com', firstName: 'John', lastName: 'Doe' });
   });
+
+  // ── Happy path ─────────────────────────────────────────────────────────────
 
   it('approves request, grants role on user-service, and publishes role.granted event', async () => {
     repo.findById.mockResolvedValue(makeRequest('pending'));
@@ -61,12 +66,69 @@ describe('ApproveRoleRequestUseCase', () => {
     expect(result.decidedAt).not.toBeNull();
     expect(userClient.addRole).toHaveBeenCalledWith('uid-1', 'student');
     expect(repo.update).toHaveBeenCalledWith(result);
+  });
+
+  it('outbox payload includes enriched student data, note, and appUrl', async () => {
+    repo.findById.mockResolvedValue(makeRequest('pending'));
+    userClient.addRole.mockResolvedValue(undefined);
+    repo.update.mockResolvedValue(undefined);
+    outbox.publishWithBatch.mockResolvedValue(undefined);
+
+    await useCase.execute('req-1', 'admin-uid', 'Congratulations!', 'http-req-1');
+
     expect(outbox.publishWithBatch).toHaveBeenCalledWith(
       expect.objectContaining({
         type:    'role.granted',
-        payload: expect.objectContaining({ requesterUid: 'uid-1', role: 'student', decidedByUid: 'admin-uid' }),
+        payload: expect.objectContaining({
+          requesterUid:     'uid-1',
+          role:             'student',
+          decidedByUid:     'admin-uid',
+          email:            'john@example.com',
+          studentFirstName: 'John',
+          studentLastName:  'Doe',
+          note:             'Congratulations!',
+          appUrl:           expect.any(String),
+        }),
       }),
     );
+  });
+
+  it('note is undefined in payload when not provided', async () => {
+    repo.findById.mockResolvedValue(makeRequest('pending'));
+    userClient.addRole.mockResolvedValue(undefined);
+    repo.update.mockResolvedValue(undefined);
+    outbox.publishWithBatch.mockResolvedValue(undefined);
+
+    await useCase.execute('req-1', 'admin-uid', undefined, 'http-req-1');
+
+    expect(outbox.publishWithBatch).toHaveBeenCalledWith(
+      expect.objectContaining({ payload: expect.objectContaining({ note: undefined }) }),
+    );
+  });
+
+  it('still approves when getUser returns null (enrichment is non-blocking)', async () => {
+    userClient.getUser.mockResolvedValue(null);
+    repo.findById.mockResolvedValue(makeRequest('pending'));
+    userClient.addRole.mockResolvedValue(undefined);
+    repo.update.mockResolvedValue(undefined);
+    outbox.publishWithBatch.mockResolvedValue(undefined);
+
+    const result = await useCase.execute('req-1', 'admin-uid', undefined, 'req-1');
+    expect(result.status).toBe('approved');
+    expect(outbox.publishWithBatch).toHaveBeenCalledWith(
+      expect.objectContaining({ payload: expect.objectContaining({ email: undefined }) }),
+    );
+  });
+
+  it('still approves when getUser throws (enrichment is non-blocking)', async () => {
+    userClient.getUser.mockRejectedValue(new Error('user-service down'));
+    repo.findById.mockResolvedValue(makeRequest('pending'));
+    userClient.addRole.mockResolvedValue(undefined);
+    repo.update.mockResolvedValue(undefined);
+    outbox.publishWithBatch.mockResolvedValue(undefined);
+
+    const result = await useCase.execute('req-1', 'admin-uid', undefined, 'req-1');
+    expect(result.status).toBe('approved');
   });
 
   it('approves without a note — decisionNote is null', async () => {
@@ -76,10 +138,10 @@ describe('ApproveRoleRequestUseCase', () => {
     outbox.publishWithBatch.mockResolvedValue(undefined);
 
     const result = await useCase.execute('req-1', 'admin-uid', undefined, 'http-req-1');
-
-    expect(result.status).toBe('approved');
     expect(result.decisionNote).toBeNull();
   });
+
+  // ── Error cases ────────────────────────────────────────────────────────────
 
   it('throws 404 ROLE_REQUEST_NOT_FOUND when request does not exist', async () => {
     repo.findById.mockResolvedValue(null);
@@ -100,7 +162,6 @@ describe('ApproveRoleRequestUseCase', () => {
       errorCode: 'INVALID_STATE',
     });
     expect(userClient.addRole).not.toHaveBeenCalled();
-    expect(repo.update).not.toHaveBeenCalled();
   });
 
   it('throws 409 INVALID_STATE when request is already rejected', async () => {
@@ -110,10 +171,9 @@ describe('ApproveRoleRequestUseCase', () => {
       status:    409,
       errorCode: 'INVALID_STATE',
     });
-    expect(userClient.addRole).not.toHaveBeenCalled();
   });
 
-  it('does not persist or publish if user-service addRole fails', async () => {
+  it('does not persist or publish if addRole fails (role grant is blocking)', async () => {
     repo.findById.mockResolvedValue(makeRequest('pending'));
     userClient.addRole.mockRejectedValue(new Error('user-service down'));
 

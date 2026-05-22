@@ -3,6 +3,7 @@ import { OutboxEventPublisher }       from '@shared/events';
 import { IRoleRequestRepository }    from '../../domain/repositories/IRoleRequestRepository';
 import { UserServiceClient }         from '../../infrastructure/clients/UserServiceClient';
 import { RoleRequest }               from '../../domain/entities/RoleRequest';
+import { config }                    from '../../config';
 
 export class ApproveRoleRequestUseCase {
   constructor(
@@ -22,9 +23,22 @@ export class ApproveRoleRequestUseCase {
 
     await this.roleRequestRepo.update(req);
 
+    // Enrich outbox payload with student details for the approval email.
+    // Fire-and-forget — never blocks the role grant if user-service is unavailable.
+    const student = await this.userClient.getUser(req.requesterUid).catch(() => null);
+
     await this.outbox.publishWithBatch({
-      type:      'role.granted',
-      payload:   { requesterUid: req.requesterUid, role: req.requestedRole, decidedByUid },
+      type:    'role.granted',
+      payload: {
+        requesterUid:     req.requesterUid,
+        role:             req.requestedRole,
+        decidedByUid,
+        email:            student?.email     ?? undefined,
+        studentFirstName: student?.firstName ?? undefined,
+        studentLastName:  student?.lastName  ?? undefined,
+        note:             note               ?? undefined,
+        appUrl:           config.appUrl,
+      },
       requestId,
     });
 

@@ -9,6 +9,7 @@ import { EnrollmentRejectedHandler }          from '../../application/handlers/E
 import { UserRegisteredHandler }              from '../../application/handlers/UserRegisteredHandler';
 import { AdminSuspendedHandler }              from '../../application/handlers/AdminSuspendedHandler';
 import { AdminCreatedHandler }                from '../../application/handlers/AdminCreatedHandler';
+import { RoleGrantedHandler }                 from '../../application/handlers/RoleGrantedHandler';
 import { internalEventSchema }                from '../validators/notificationValidator';
 
 export class EventController {
@@ -21,6 +22,7 @@ export class EventController {
     private readonly userRegistered:       UserRegisteredHandler,
     private readonly adminSuspended:       AdminSuspendedHandler,
     private readonly adminCreated:         AdminCreatedHandler,
+    private readonly roleGranted:          RoleGrantedHandler,
   ) {}
 
   receiveEvent = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
@@ -54,6 +56,9 @@ export class EventController {
           break;
         case 'admin.created':
           await this.adminCreated.handle(payload as unknown as Parameters<typeof this.adminCreated.handle>[0], requestId);
+          break;
+        case 'role.granted':
+          await this.roleGranted.handle(payload as unknown as Parameters<typeof this.roleGranted.handle>[0], requestId);
           break;
         default:
           logger.warn({ eventType }, 'Unhandled event type');

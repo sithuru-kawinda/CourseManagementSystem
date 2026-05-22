@@ -492,6 +492,7 @@ The outbox-worker's `EventDispatcher` routes each event type to one or more hand
 | `progress.subjectCompleted` | audit |
 | `admin.created` | notify, audit â€” fired by both `CreateAdminUseCase` and `CreateUserDirectlyUseCase`; payload fields: `uid`, `email`, `firstName`, `lastName`, `initialPassword?`, `promoted?`, `role?` (e.g. `'leader'`, `'g12'`, `'admin'`), `passwordResetUrl?` (Firebase reset link â€” generated at creation time, `null` on emulator quirk), `systemUrl?` (from `APP_URL` env var). `AdminCreatedHandler` has **three** branches: (1) `promoted: true` â†’ short promotion email, no password; (2) `role === 'leader'` or `'g12'` â†’ leader/g12 welcome email with credentials + "Set Your Password" button; (3) default â†’ admin welcome email. |
 | `admin.suspended` | notify, audit |
+| `role.granted` | notify (`RoleGrantedHandler` — in-app notification + approval email with role label, optional admin note, next-steps, login link), audit |
 | `audit.action` | audit |
 | `cell.created` | audit |
 | `cell.join_requested` | audit |
@@ -500,7 +501,7 @@ The outbox-worker's `EventDispatcher` routes each event type to one or more hand
 | `cell_report.filed` | audit |
 | `cell_report.voided` | audit |
 
-**Unrouted events (published to outbox but not wired in EventDispatcher):** `role.requested`, `role.granted` â€” silently skipped by the outbox-worker. Adding notify/audit coverage for these is a known gap.
+**Unrouted events (published to outbox but not wired in EventDispatcher):** `role.requested` â€” silently skipped by the outbox-worker. Adding notify/audit coverage for role requests is a known gap. (`role.granted` is now fully wired â€” see row above.)
 
 ### Firestore Collection Ownership
 
@@ -599,7 +600,7 @@ Endpoints:
 - `POST /role-requests/:id/approve` (admin) â€" approve and grant role
 - `POST /role-requests/:id/reject` (admin) â€" reject request
 
-Creating a role request publishes `role.requested` to the outbox. Approval atomically grants the role on the user document via an internal call to user-service and publishes `role.granted` to the outbox. Neither event is currently wired in the outbox-worker's EventDispatcher.
+Creating a role request publishes `role.requested` to the outbox (not wired in EventDispatcher — silently skipped). Approval atomically grants the role on the user document via an internal call to user-service, enriches the outbox payload with student details (email, firstName, lastName via a fire-and-forget `getUser()` call), and publishes `role.granted` to the outbox — which IS wired to notify (`RoleGrantedHandler`) and audit.
 
 `multer` is used by enrollment-service (qualification file), user-service (avatar upload), and cell-service (report photos). All other services do not use it.
 
@@ -902,7 +903,7 @@ These items are intentionally incomplete. Do not assume they are implemented.
 |------|----------|-------|
 | `@shared/i18n` package | `packages/shared/` | **Not created.** Do not import until scaffolded. Locale resolver + template renderer for `en`/`si`/`ta` was designed but never built. |
 | `jest.e2e.config.ts` | repo root | **Missing.** `npm run test:e2e` will fail until this config is created. E2E tests under `tests/e2e/` cannot run. |
-| `role.requested` / `role.granted` outbox events | `outbox-worker/src/EventDispatcher` | Published to `outbox` by enrollment-service but **not wired** in the dispatcher â€” silently skipped. No notify/audit coverage for role grants. |
+| `role.requested` outbox event | `outbox-worker/src/EventDispatcher` | Published to `outbox` by enrollment-service but **not wired** in the dispatcher â€” silently skipped. No notify/audit coverage for role requests. (`role.granted` is now fully wired.) |
 | `course.published` notification handler | `notification-service/src/application/handlers/` | Event fires and is delivered to notification-service but **no handler exists** â€” silently dropped. Students are not notified when a course is published. |
 
 ---

@@ -11,6 +11,7 @@ import { EnrollmentRejectedHandler }       from './application/handlers/Enrollme
 import { UserRegisteredHandler }           from './application/handlers/UserRegisteredHandler';
 import { AdminSuspendedHandler }           from './application/handlers/AdminSuspendedHandler';
 import { AdminCreatedHandler }             from './application/handlers/AdminCreatedHandler';
+import { RoleGrantedHandler }              from './application/handlers/RoleGrantedHandler';
 import { NotificationController }          from './http/controllers/NotificationController';
 import { EventController }                 from './http/controllers/EventController';
 
@@ -28,6 +29,7 @@ const enrollRejectedHandler = new EnrollmentRejectedHandler(notifRepo, dispatche
 const userRegHandler        = new UserRegisteredHandler(notifRepo, userClient, dispatcher);
 const adminSuspendedHandler = new AdminSuspendedHandler(notifRepo, dispatcher);
 const adminCreatedHandler   = new AdminCreatedHandler(dispatcher);
+const roleGrantedHandler    = new RoleGrantedHandler(notifRepo, dispatcher);
 
 export const container = {
   notificationController: new NotificationController(notifRepo),
@@ -35,5 +37,6 @@ export const container = {
     regApprovedHandler, regRejectedHandler,
     enrollPendingHandler, enrollApprovedHandler, enrollRejectedHandler,
     userRegHandler, adminSuspendedHandler, adminCreatedHandler,
+    roleGrantedHandler,
   ),
 };

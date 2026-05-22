@@ -47,6 +47,10 @@ const ROUTES: Record<string, Handler[]> = {
     (p, r) => sendEvent(notifyClient, 'admin.suspended', p, r),
     (p, r) => sendEvent(auditClient,  'admin.suspended', p, r),
   ],
+  'role.granted': [
+    (p, r) => sendEvent(notifyClient, 'role.granted', p, r),
+    (p, r) => sendEvent(auditClient,  'role.granted', p, r),
+  ],
   'audit.action': [
     (p, r) => sendEvent(auditClient,  'audit.action', p, r),
   ],
