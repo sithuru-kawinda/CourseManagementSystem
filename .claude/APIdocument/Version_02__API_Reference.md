@@ -501,9 +501,15 @@ List users with filtering.
 
 Get a specific user's profile.
 
-**Authentication:** Bearer required | **Roles:** `admin`, `super_admin`
+**Authentication:** Bearer required | **Roles:** `leader`, `g12`, `admin`, `super_admin`
 
-**`200 OK`** — User object. | **`404`** → `USER_NOT_FOUND`
+> **Scoped access for `leader` / `g12`:** These callers can look up any non-admin user. Attempting to fetch a user who holds `admin` or `super_admin` returns `403 FORBIDDEN`.
+
+**`200 OK`** — User object.
+
+**`403 Forbidden`** → `FORBIDDEN` — leader/g12 attempted to fetch an admin profile
+
+**`404 Not Found`** → `USER_NOT_FOUND`
 
 ---
 

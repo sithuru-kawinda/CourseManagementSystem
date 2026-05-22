@@ -48,7 +48,8 @@ export class UsersController {
 
   getOne = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const user = await this.getUserByIdUseCase.execute(req.params.uid);
+      const callerRoles = (req as AuthenticatedRequest).principal?.roles ?? [];
+      const user = await this.getUserByIdUseCase.execute(req.params.uid, callerRoles);
       sendSuccess(res, user);
     } catch (err) { next(err); }
   };

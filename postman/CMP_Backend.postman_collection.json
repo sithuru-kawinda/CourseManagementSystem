@@ -2183,7 +2183,7 @@
         },
         {
           "id": "b4919db1-3837-49e2-a294-eb3c7f45bd0b",
-          "name": "Get User by ID",
+          "name": "Get User by ID (Admin)",
           "request": {
             "method": "GET",
             "header": [],
@@ -2216,9 +2216,149 @@
                 "id": "f9546467-dd31-4209-b815-00f2ceb1f2b7",
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test(\"200 OK — Get User\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"200 OK — Get User (Admin)\", () => pm.response.to.have.status(200));",
                   "const j = pm.response.json();",
                   "if (j.uid) { pm.environment.set(\"userId\", j.uid); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "id": "c3e4f5a6-b7c8-d9e0-f1a2-b3c4d5e6f7a8",
+          "name": "Get User by ID (Leader — non-admin target)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/users/{{student2Id}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users",
+                "{{student2Id}}"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{leaderToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "id": "d4e5f6a7-b8c9-d0e1-f2a3-b4c5d6e7f8a9",
+                "type": "text/javascript",
+                "exec": [
+                  "// Leader can fetch any non-admin user profile",
+                  "pm.test(\"200 OK — Leader Get User (non-admin target)\", () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json();",
+                  "pm.test(\"uid returned\", () => pm.expect(j.uid).to.be.a(\"string\").and.not.empty);",
+                  "pm.test(\"target is not admin\", () => {",
+                  "  pm.expect((j.roles || []).includes(\"admin\")).to.be.false;",
+                  "  pm.expect((j.roles || []).includes(\"super_admin\")).to.be.false;",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "id": "e5f6a7b8-c9d0-e1f2-a3b4-c5d6e7f8a9b0",
+          "name": "Get User by ID (G12 — non-admin target)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/users/{{student2Id}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users",
+                "{{student2Id}}"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{g12Token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "id": "f6a7b8c9-d0e1-f2a3-b4c5-d6e7f8a9b0c1",
+                "type": "text/javascript",
+                "exec": [
+                  "// G12 can fetch any non-admin user profile",
+                  "pm.test(\"200 OK — G12 Get User (non-admin target)\", () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json();",
+                  "pm.test(\"uid returned\", () => pm.expect(j.uid).to.be.a(\"string\").and.not.empty);",
+                  "pm.test(\"target is not admin\", () => {",
+                  "  pm.expect((j.roles || []).includes(\"admin\")).to.be.false;",
+                  "  pm.expect((j.roles || []).includes(\"super_admin\")).to.be.false;",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "id": "a7b8c9d0-e1f2-a3b4-c5d6-e7f8a9b0c1d2",
+          "name": "Get Admin User by ID (Leader — expect 403)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/users/{{adminId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users",
+                "{{adminId}}"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{leaderToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "id": "b8c9d0e1-f2a3-b4c5-d6e7-f8a9b0c1d2e3",
+                "type": "text/javascript",
+                "exec": [
+                  "// Leader must NOT be able to fetch an admin user profile",
+                  "pm.test(\"403 Forbidden — Leader cannot fetch admin profile\", () => pm.response.to.have.status(403));",
+                  "const j = pm.response.json();",
+                  "pm.test(\"error code is FORBIDDEN\", () => pm.expect(j.error.code).to.equal(\"FORBIDDEN\"));"
                 ]
               }
             }
