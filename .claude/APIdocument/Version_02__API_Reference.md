@@ -1,6 +1,6 @@
 # TCCR — API Reference Document
 ## The Christian Center Rathmalana · `tccr-backend`
-### REST API · Version 2.4.0 · Base URL: `https://api.tccr.lk/api/v1`
+### REST API · Version 2.8.0 · Base URL: `https://cms.api.bethelnet.au/api/v1`
 
 **Version:** 2.8.0
 **Date:** 22 May 2026
@@ -722,7 +722,7 @@ Use this when a G12 leader, admin, or super admin needs to on-board a cell leade
 | Credentials table | Email + temporary password |
 | Reset button | `"Set Your Password →"` — Firebase one-time reset link (1 hr TTL) |
 | Fallback (no reset link) | Prompt to change via *My Profile → Change Password* |
-| System URL | Configured via `APP_URL` env var (default `https://tccr.lk`) |
+| System URL | Configured via `APP_URL` env var (default `https://cms.bethelnet.au/login`) |
 
 **`409 Conflict`** — Email already registered
 ```json

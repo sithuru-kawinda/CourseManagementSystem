@@ -1,7 +1,7 @@
 # CMP / TCCR — Postman Collection
 
 API test collection for the **CMP → TCCR backend** (slp-backend).  
-**139 requests** across 17 folders covering every V1 and V2 endpoint.
+**175 requests** across 17 folders covering every V1 and V2 endpoint.
 
 ---
 
@@ -9,7 +9,7 @@ API test collection for the **CMP → TCCR backend** (slp-backend).
 
 | File | What it is |
 |------|-----------|
-| `CMP_Backend.postman_collection.json` | Main collection — all 139 requests |
+| `CMP_Backend.postman_collection.json` | Main collection — all 175 requests |
 | `CMP_Local.postman_environment.json` | Local dev environment (Firebase emulator) |
 | `CMP_Online.postman_environment.json` | Production environment (online Firebase) |
 
@@ -117,15 +117,15 @@ All tokens and IDs are **auto-set by test scripts** — you never need to paste 
 
 | Variable | Set by request | Description |
 |----------|---------------|-------------|
+| `runId` | Auto-generated (prerequest) | Timestamp suffix for unique test emails per run |
+| `registeredUid` | Register New Member | UID of the newly registered member |
 | `tempMemberToken` | Sign In — New Member (Auth folder) | Disposable token used for logout test |
 | `federatedToken` | Federated Login — Google | Token from federated OAuth sign-in |
-| `idToken` | Register (new member) | Token of the newly registered member |
-| `registeredUid` | Register (new member) | UID of the newly registered member |
-| `userId` | Get User by ID | Mirrors `student2Id` — legacy alias |
+| `userId` | Get User by ID (Admin) | Mirrors `student2Id` — legacy alias |
 | `adminUserId` | Create Admin (Super Admin folder) | UID of the newly created admin |
 | `promotedAdminId` | Create Admin (Super Admin folder) | UID of the created admin |
 | `createdLeaderId` | Create User Directly (role=leader) | UID of a directly-created leader |
-| `g12UserId` | Create User Directly (role=g12) | UID of a directly-created g12 user |
+| `createdG12Id` | Create User Directly (role=g12) | UID of a directly-created g12 user |
 | `courseId` | Create Course | ID of the test course |
 | `semesterId` | Create Semester | ID of the test semester |
 | `subjectId` | Create Subject (1st call) | ID of the first test subject |
@@ -159,26 +159,42 @@ All tokens and IDs are **auto-set by test scripts** — you never need to paste 
 ## Collection folder breakdown
 
 | # | Folder | Requests | Caller | Notes |
-|---|--------|----------|--------|-------|
+|---|--------|:--------:|--------|-------|
 | 0 | 🔐 Sign In | 6 | — | **Run this first.** Saves all tokens and user IDs. |
-| 1 | 1️⃣ Auth Service | 8 | public / any | Register, sign-in (new member), logout, password reset, OTP verify, track-failure, federated Google, federated Apple |
+| 1 | 1️⃣ Auth Service | 17 | public / any | Register (6 variants: 201, 409, 400×3, si-lang), logout, password reset, OTP verify, track-failure, federated Google, federated Apple. **Register sends welcome email with credentials + login link.** |
 | 2 | 2️⃣ User Service — Me | 10 | student | Get/update profile, avatar upload, change password, FCM tokens, notification preferences, OAuth provider link/unlink |
-| 3 | 3️⃣ User Service — Admin Manage Users | 14 | admin / leader / g12 | List/search users, create user (leader/g12), get by ID, suspend, reactivate, update roles, promote (6 scenarios) |
+| 3 | 3️⃣ User Service — User Management (Admin / Leader / G12) | 25 | admin / leader / g12 | List users (admin + leader scoped + g12 scoped), search by name (admin/leader/g12), get user (admin/leader/g12 + 403 guard), create user leader/g12, suspend, reactivate, assign roles, promote (5 scenarios), delete user |
 | 4 | 4️⃣ User Service — Super Admin | 7 | super_admin | List admins, create admin, get by ID, suspend, reactivate, make-admin, delete admin |
 | 5 | 5️⃣ Course Service — Build a Course | 18 | admin | Full course build: create course → semester → 2 subjects → lesson → publish. Includes update and list operations. |
 | 6 | 6️⃣ Batches (V2) | 6 | admin / student | Create batch, list, get by ID, update, open, close |
-| 7 | 7️⃣ Enrollment | 10 | student / admin | Enroll, list enrollments, list/approve/reject registrations, bulk-approve, list/approve/reject enrollments, withdraw |
-| 8 | 8️⃣ Role Requests (V2) | 6 | member / admin | Create, list mine, list all (admin), get by ID, approve, reject |
+| 7 | 7️⃣ Enrollment | 15 | student / admin | Enroll, list enrollments, list/approve/reject registrations, bulk-approve, list enrollments (admin), **approve enrollment (sends approval email)**, **reject enrollment (sends rejection email)**, withdraw |
+| 8 | 8️⃣ Role Requests (V2) | 8 | member / admin | Create, list mine, list all (admin), get by ID (own + 403), download qualification PDF, approve, reject |
 | 9 | 9️⃣ Progress Service | 5 | student / admin | Mark subject complete, record access, get course progress (student + admin), get subject progress |
 | 10 | 🔔 Notifications | 4 | student | List notifications, mark one read, mark all read, update preferences |
 | 11 | 📎 Storage Service | 4 | admin / student | Upload attachment (PDF/DOCX), get download URL, delete attachment, upload subject image |
 | 12 | 📋 Audit Log | 3 | admin | List audit log, filter by actor, get per-user timeline |
 | 13 | ⚡ Course Lifecycle | 6 | admin | Archive, restore, delete lesson, delete subject, delete semester, delete course |
 | 14 | 🏘 V2 — Cell Service | 19 | leader / g12 / admin | Sub-folders: Member Search (2), Cell CRUD (5), Members (2), Join Requests (4), Cell Reports (5), Archive (1) |
-| 15 | 📊 V2 — Analytics Service | 6 | g12 / admin | Weekly cells, attendance, meeting types, growth, participation, CSV export |
-| 16 | 🏥 Health Checks | 7 | — | Liveness probes for gateway, auth, user, course, cell services + analytics liveness via gateway |
+| 15 | 📊 V2 — Analytics Service | 10 | g12 / admin | Weekly cells, attendance, meeting types, growth, participation, CSV export, + analytics liveness checks |
+| 16 | 🏥 Health Checks | 12 | — | Liveness + readiness probes for all services via gateway |
 
-**Total: 139 requests**
+**Total: 175 requests**
+
+---
+
+## Email notifications triggered by this collection
+
+> Emails are sent asynchronously via the outbox-worker (~5 s after the trigger request). SMTP must be configured (`SMTP_HOST`, `SMTP_USER`, `SMTP_PASS` in `.env`) or `EMAIL_PROVIDER=console` for local testing.
+
+| Trigger request | Email sent to | Subject |
+|----------------|--------------|---------|
+| Register New Member (folder 1) | Registered email | `Welcome to TCCR — Your Account is Active` |
+| Approve Enrollment (folder 7) | Student's email | `Enrollment Approved — <Course Title> — TCCR` |
+| Reject Enrollment (folder 7) | Student's email | `Enrollment Update — <Course Title> — TCCR` |
+| Approve Role Request (folder 8) | Member's email | Role grant notification |
+| Create Leader / G12 User (folder 3) | New user's email | `Your Cell/G12 Leader Account has been Created — TCCR` |
+
+All login buttons link to `APP_URL` (default `https://cms.bethelnet.au/login`).
 
 ---
 
@@ -225,5 +241,4 @@ After adding new endpoints, regenerate the collection JSON from source:
 ```bash
 node scripts/build-postman-collection.js
 # Overwrites postman/CMP_Backend.postman_collection.json
-# Output: Total folders: 17  Total requests: 139
 ```

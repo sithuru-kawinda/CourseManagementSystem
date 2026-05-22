@@ -3,7 +3,7 @@
 **Project:** Course Management Portal (`slp-backend`)  
 **Organisation:** Future CX Lanka (Pvt) Ltd  
 **Version:** 1.0.0  
-**Last Updated:** 2026-05-16 (V2 batch management + role requests implemented; enrollment-service Dockerfile recreated; auth bugs fixed; 21 Batch unit tests added; CLAUDE.md corrections; tracker updated with all V2 progress)
+**Last Updated:** 2026-05-22 (V2 email notifications implemented; GET /users + GET /users/:uid opened to leader/g12 with scoped view; DELETE /users/:uid; Apple Web OAuth; qualification upload for role requests; Phase 20 added)
 
 > Update this file as implementation progresses. Change `[ ]` to `[x]` when a task is done.
 
@@ -160,13 +160,15 @@
 - [x] `POST /internal/users/exists` — email uniqueness check
 - [x] `POST /internal/users/approve` — set status = APPROVED
 - [x] `GET /internal/users/admins` — returns admin UIDs (used by notification-service)
+- [x] `GET /internal/users/:uid` — returns `{uid, email, firstName, lastName}` (used by enrollment-service to enrich approval/rejection emails)
 
 ### Endpoints
 - [x] `GET /me`
 - [x] `PATCH /me`
 - [x] `POST /me/change-password`
-- [x] `GET /users` (admin)
-- [x] `GET /users/:uid` (admin)
+- [x] `GET /users` — `leader`, `g12`, `admin`, `super_admin`; leader/g12 get scoped view (approved non-admins only)
+- [x] `GET /users/:uid` — `leader`, `g12`, `admin`, `super_admin`; leader/g12 get 403 if target is admin/super_admin
+- [x] `DELETE /users/:uid` — soft-delete non-admin user; sets `deletedAt` + disables Firebase Auth account
 - [x] `POST /users/:uid/suspend` (admin)
 - [x] `POST /users/:uid/reactivate` (admin)
 - [x] `GET /super-admin/admins` (super_admin)
@@ -182,7 +184,7 @@
 - [x] Unit: `CreateAdminUseCase` (4 cases)
 - [x] Unit: `SuspendUserUseCase` (4 cases)
 - [x] Unit: `User` entity (13 cases — pre-existing)
-- [x] Unit: `AddRoleUseCase`, `UploadAvatarUseCase`, `GetMeUseCase`, `GetUserByIdUseCase`, `GetUsersUseCase`, `ChangePasswordUseCase`, `CheckEmailExistsUseCase`, `DeleteAdminUseCase`, `ReactivateUserUseCase`, `UpdateProfileUseCase`, `ApproveUserUseCase`, `PromoteToAdminUseCase` (V2 expanded suite)
+- [x] Unit: `AddRoleUseCase`, `UploadAvatarUseCase`, `GetMeUseCase`, `GetUserByIdUseCase` (12 cases — incl. scoped 403 for leader/g12 trying to fetch admin profile), `GetUsersUseCase`, `ChangePasswordUseCase`, `CheckEmailExistsUseCase`, `DeleteAdminUseCase`, `ReactivateUserUseCase`, `UpdateProfileUseCase`, `ApproveUserUseCase`, `PromoteToAdminUseCase`, `DeleteUserUseCase` (V2 expanded suite)
 - [x] Integration: `POST /super-admin/admins` (3 cases)
 - [x] Integration: `GET /users` (2 cases)
 
@@ -310,14 +312,16 @@
 - [x] `ApproveRegistrationUseCase` → calls user-service + outbox event
 - [x] `RejectRegistrationUseCase`
 - [x] `BulkApproveRegistrationsUseCase` (`Promise.allSettled`)
-- [x] `ApproveEnrollmentUseCase`
-- [x] `RejectEnrollmentUseCase` (sets `rejectedAt` for cooloff)
+- [x] `ApproveEnrollmentUseCase` — enriched outbox payload (student email, firstName, lastName, courseTitle, note, appUrl); fetches from user-service + course-service in parallel (non-blocking)
+- [x] `RejectEnrollmentUseCase` — enriched outbox payload (student email, firstName, lastName, courseTitle, reason, appUrl); fetches from user-service + course-service in parallel (non-blocking)
 - [x] `WithdrawEnrollmentUseCase`
-- [x] `CreateRoleRequestUseCase` — member requests student role (V2)
+- [x] `CreateRoleRequestUseCase` — member requests student role; qualification PDF uploaded to Storage (V2)
 - [x] `ApproveRoleRequestUseCase` — grants role via user-service + outbox event (V2)
 - [x] `RejectRoleRequestUseCase` — rejects with optional note (V2)
 - [x] `GetRoleRequestsUseCase` — admin list with status filter + cursor pagination (V2)
 - [x] `GetMyRoleRequestsUseCase` — member's own requests (V2)
+- [x] `GetRoleRequestByIdUseCase` — single request with ownership guard (admin sees all, others own only) (V2)
+- [x] `GetRoleRequestQualificationUseCase` — generates 15-min signed URL for qualification PDF (V2)
 
 ### Internal Endpoints
 - [x] `POST /internal/enrollments/registrations` (called by auth-service)
@@ -334,9 +338,11 @@
 - [x] `GET /admin/enrollments` (admin)
 - [x] `POST /admin/enrollments/:id/approve` (admin)
 - [x] `POST /admin/enrollments/:id/reject` (admin)
-- [x] `POST /role-requests` (any authenticated) (V2)
+- [x] `POST /role-requests` (any authenticated) — multipart with qualification PDF (V2)
 - [x] `GET /role-requests/mine` (any authenticated) (V2)
 - [x] `GET /role-requests` (admin) (V2)
+- [x] `GET /role-requests/:id` (any authenticated — ownership guard) (V2)
+- [x] `GET /role-requests/:id/qualification` (admin — 15-min signed URL) (V2)
 - [x] `POST /role-requests/:id/approve` (admin) (V2)
 - [x] `POST /role-requests/:id/reject` (admin) (V2)
 
@@ -472,7 +478,9 @@
 ### Tests
 - [x] Unit: `NotificationDispatcher` (3 cases — success, 3×retry→error logged, push→warn logged)
 - [x] Unit: `RegistrationApprovedHandler` (2 cases)
-- [x] Unit: `EnrollmentApprovedHandler` (2 cases — all channels, push failure safe)
+- [x] Unit: `EnrollmentApprovedHandler` (12 cases — in-app notif, rich email subject/name/note/appUrl/course table, no-note fallback, skip email absent, push present/absent)
+- [x] Unit: `EnrollmentRejectedHandler` (11 cases — in-app notif with reason/courseTitle, rejection email subject/name/reason/no-reason/appUrl, skip email absent, generic subject, DB error)
+- [x] Unit: `UserRegisteredHandler` (12 cases — V2 admin notification "New Member Joined", welcome email subject/credentials/name/appUrl/login-link, no-password fallback, no-appUrl fallback, error propagation)
 - [x] Unit: `EnrollmentPendingHandler` (2 cases — notifies all admins, empty admin list)
 - [x] Integration: list notifications + filter by read + mark read + mark all read (7 cases)
 
@@ -644,6 +652,7 @@
 | 17 | Small API Completions + Migration Scripts | `[x]` |
 | 18 | Scheduled Jobs (:3012) | `[x]` |
 | 19 | Google/Apple OAuth + Provider Linking | `[x]` |
+| 20 | V2 Email Notifications | `[x]` |
 
 ---
 
@@ -739,6 +748,67 @@
 - [x] Unit: `FileReportUseCase` (5 cases — new, idempotent, admin forbidden, 404, super_admin allowed)
 - [x] Unit: `VoidReportUseCase` (4 cases — void, already voided, 404, 403 member)
 - [x] Integration: `cells.test.ts` — 38 cases covering all 16 endpoints with RBAC, 404, 409, idempotency
+
+---
+
+---
+
+## Phase 20 — V2 Email Notifications (2026-05-22)
+
+### Registration Welcome Email
+- [x] `RegisterUseCase` — adds `password` + `appUrl` (from `config.appUrl`) to `user.registered` outbox payload
+- [x] `UserRegisteredHandler` — rich HTML welcome email: credentials table (email + password), ⚠ change-password warning, `Log in to TCCR →` button → `appUrl`; admin in-app notification updated from V1 "pending approval" → V2 "New Member Joined"
+- [x] `auth-service/config.ts` — added `appUrl: process.env.APP_URL ?? 'https://cms.bethelnet.au/login'`
+- [x] Unit tests: `RegisterUseCase` (24 passing — asserts `password` + `appUrl` in payload; mock-bleed fix in `beforeEach`), `UserRegisteredHandler` (12 cases)
+
+### Enrollment Approval Email
+- [x] `ApproveEnrollmentUseCase` — injected `UserServiceClient` + `CourseServiceClient`; fetches student (email, firstName, lastName) + course title via `Promise.all` (fire-and-forget on failure, never blocks approval); passes `note`, `appUrl` + enrichment fields to outbox
+- [x] `EnrollmentController.approveAdmin` — parses optional `note` from body via `approveEnrollmentSchema`
+- [x] `EnrollmentApprovedHandler` — rich HTML approval email: course + Approved ✓ status table, blue admin-note callout (omitted when blank), `Log in to TCCR →` button; in-app notification mentions course title
+- [x] Unit tests: `ApproveEnrollmentUseCase` (11 cases), `EnrollmentApprovedHandler` (12 cases)
+
+### Enrollment Rejection Email
+- [x] `RejectEnrollmentUseCase` — same enrichment pattern as approve; adds `reason` + `appUrl` to outbox payload
+- [x] `EnrollmentRejectedHandler` — rich HTML rejection email: course + Not Approved (red) table, red reason callout ("No specific reason provided" when blank), encouragement to reapply, `Log in to TCCR →` button
+- [x] Unit tests: `RejectEnrollmentUseCase` (8 cases), `EnrollmentRejectedHandler` (11 cases)
+
+### Internal Route — User Profile Lookup
+- [x] `GET /internal/users/:uid` — new internal endpoint in user-service; returns `{uid, email, firstName, lastName}`; protected by `internalAuth`; wired in `InternalController.getById()` + `container.ts`
+
+### Login URL Standardisation
+- [x] `APP_URL` default changed `https://tccr.lk` → `https://cms.bethelnet.au/login` in `auth-service/config.ts` + `user-service/config.ts`
+- [x] `.env.example` updated: `APP_URL=https://cms.bethelnet.au/login`
+- [x] All welcome email login buttons now point to `https://cms.bethelnet.au/login`
+
+### Access Control Improvements
+- [x] `GET /users` — opened to `leader`, `g12` (scoped: approved non-admins only; `GetUsersUseCase` applies filter when callerRoles lacks admin/super_admin)
+- [x] `GET /users/:uid` — opened to `leader`, `g12`; `GetUserByIdUseCase` throws 403 if leader/g12 fetches admin/super_admin profile (12 unit tests)
+- [x] `DELETE /users/:uid` — new endpoint (`DeleteUserUseCase`): soft-delete Firestore + disable Firebase Auth; blocks self-delete, admin/super_admin targets
+
+### Role Request Enhancements
+- [x] `POST /role-requests` — qualification PDF uploaded via `handleQualificationUpload` middleware (`QualificationStorageRepository`)
+- [x] `GET /role-requests/:id` — ownership guard: admin sees any request; non-admins see own only (403 otherwise)
+- [x] `GET /role-requests/:id/qualification` — admin only; 15-min signed URL via `GetRoleRequestQualificationUseCase`
+
+### API Reference Document (v2.1.0 → v2.8.0 in this session)
+- [x] Header line 3 base URL: `https://api.tccr.lk/api/v1` → `https://cms.api.bethelnet.au/api/v1`
+- [x] §2.1: Side Effects table, Welcome Email table, full per-field validation error table, APP_URL env var note
+- [x] §4.1: Leader/G12 scoped-view callout added; Roles updated
+- [x] §4.2: Roles updated to include leader/g12; scoped-access callout; 403 response documented
+- [x] §4.9: `DELETE /users/:uid` fully documented (business rules table, side effects, 403/404 responses)
+- [x] §5.4: Ownership rule documented; 403 response added
+- [x] §5.5: `GET /role-requests/:id/qualification` fully documented
+- [x] §11.5: Request body (note field), side effects table, Approval Email table, response JSON, 404/409 errors
+- [x] §11.6: Request body (reason field), side effects table, Rejection Email table, response JSON, 404/409 errors
+
+### Postman Collection (139 → 175 requests)
+- [x] Folder 1 Auth Service: 8 → 17 (+9 register test variants + prerequest `runId` guard)
+- [x] Folder 3 User Management: renamed + 14 → 25 (+11 leader/g12 scoped tests, 403 guard, delete user)
+- [x] Folder 7 Enrollment: 10 → 15 (+5 approval/rejection with rich assertions + email notes)
+- [x] Folder 8 Role Requests: 6 → 8 (+2 get-by-id, download-qualification)
+- [x] Folder 15 Analytics: 6 → 10 (+4)
+- [x] Folder 16 Health Checks: 7 → 12 (+5)
+- [x] README.md: request counts, folder table, email notification table, login URL
 
 ---
 
