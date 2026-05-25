@@ -1,6 +1,7 @@
 import { GetRoleRequestByIdUseCase } from '../../../src/application/use-cases/GetRoleRequestByIdUseCase';
 import { IRoleRequestRepository }   from '../../../src/domain/repositories/IRoleRequestRepository';
 import { RoleRequest }              from '../../../src/domain/entities/RoleRequest';
+import { UserServiceClient }        from '../../../src/infrastructure/clients/UserServiceClient';
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -12,6 +13,33 @@ const makeRepo = (): jest.Mocked<IRoleRequestRepository> => ({
   create:                 jest.fn(),
   update:                 jest.fn(),
 });
+
+const makeUserClient = (): jest.Mocked<UserServiceClient> =>
+  ({
+    approveUser:       jest.fn(),
+    addRole:           jest.fn(),
+    getUser:           jest.fn(),
+    getMemberProfile:  jest.fn(),
+  } as unknown as jest.Mocked<UserServiceClient>);
+
+const MEMBER_PROFILE = {
+  uid:               'uid-member',
+  email:             'john@example.com',
+  firstName:         'John',
+  lastName:          'Doe',
+  phoneNumber:       '+94771234567',
+  profilePhotoUrl:   'https://storage.example.com/avatars/uid-member.jpg',
+  dateOfBirth:       '2000-06-15',
+  gender:            'male' as const,
+  address:           '123 Main St',
+  preferredLanguage: 'en',
+  roles:             ['member'],
+  status:            'approved',
+  accountCreatedAt:  '2026-04-10T07:30:00.000Z',
+  qualifications:    [{ id: 'qual-001', title: 'BSc Computer Science', fileUrl: 'https://storage.example.com/q.pdf' }],
+  qualificationTitle: 'BSc Computer Science',
+  qualificationUrl:   'https://storage.example.com/q.pdf',
+};
 
 const makeRequest = (
   requesterUid = 'uid-member',
@@ -44,13 +72,15 @@ const makeRequest = (
 // ── tests ─────────────────────────────────────────────────────────────────────
 
 describe('GetRoleRequestByIdUseCase', () => {
-  let repo:    jest.Mocked<IRoleRequestRepository>;
-  let useCase: GetRoleRequestByIdUseCase;
+  let repo:       jest.Mocked<IRoleRequestRepository>;
+  let userClient: jest.Mocked<UserServiceClient>;
+  let useCase:    GetRoleRequestByIdUseCase;
 
   beforeEach(() => {
     jest.clearAllMocks();
-    repo    = makeRepo();
-    useCase = new GetRoleRequestByIdUseCase(repo);
+    repo       = makeRepo();
+    userClient = makeUserClient();
+    useCase    = new GetRoleRequestByIdUseCase(repo, userClient);
   });
 
   // ── 404 ─────────────────────────────────────────────────────────────────────
@@ -71,33 +101,65 @@ describe('GetRoleRequestByIdUseCase', () => {
       .rejects.toMatchObject({ status: 404, errorCode: 'ROLE_REQUEST_NOT_FOUND' });
   });
 
-  // ── admin / super_admin ──────────────────────────────────────────────────────
+  // ── admin / super_admin — with memberProfile ──────────────────────────────
 
   it('admin can read any role request regardless of requesterUid', async () => {
     repo.findById.mockResolvedValue(makeRequest('uid-other'));
+    userClient.getMemberProfile.mockResolvedValue(MEMBER_PROFILE);
 
     const result = await useCase.execute({ id: 'req-abc', requesterUid: 'uid-admin', isAdmin: true });
 
     expect(result.id).toBe('req-abc');
   });
 
-  it('super_admin (isAdmin=true) can read any role request', async () => {
+  it('admin response includes live memberProfile fetched from user-service', async () => {
+    repo.findById.mockResolvedValue(makeRequest('uid-member'));
+    userClient.getMemberProfile.mockResolvedValue(MEMBER_PROFILE);
+
+    const result = await useCase.execute({ id: 'req-abc', requesterUid: 'uid-admin', isAdmin: true });
+
+    expect(result.memberProfile).not.toBeNull();
+    expect(result.memberProfile?.uid).toBe('uid-member');
+    expect(result.memberProfile?.email).toBe('john@example.com');
+    expect(result.memberProfile?.firstName).toBe('John');
+    expect(result.memberProfile?.profilePhotoUrl).toBe('https://storage.example.com/avatars/uid-member.jpg');
+    expect(result.memberProfile?.roles).toEqual(['member']);
+    expect(result.memberProfile?.status).toBe('approved');
+    expect(result.memberProfile?.accountCreatedAt).toBe('2026-04-10T07:30:00.000Z');
+    expect(result.memberProfile?.qualifications).toHaveLength(1);
+    expect(result.memberProfile?.qualifications[0].title).toBe('BSc Computer Science');
+  });
+
+  it('admin getMemberProfile is called with the requester UID (not the admin UID)', async () => {
+    repo.findById.mockResolvedValue(makeRequest('uid-member'));
+    userClient.getMemberProfile.mockResolvedValue(MEMBER_PROFILE);
+
+    await useCase.execute({ id: 'req-abc', requesterUid: 'uid-admin', isAdmin: true });
+
+    expect(userClient.getMemberProfile).toHaveBeenCalledWith('uid-member');
+  });
+
+  it('memberProfile is null when user-service returns null (non-fatal degradation)', async () => {
+    repo.findById.mockResolvedValue(makeRequest('uid-member'));
+    userClient.getMemberProfile.mockResolvedValue(null);
+
+    const result = await useCase.execute({ id: 'req-abc', requesterUid: 'uid-admin', isAdmin: true });
+
+    expect(result.memberProfile).toBeNull();
+    expect(result.id).toBe('req-abc'); // role request data still returned
+  });
+
+  it('super_admin (isAdmin=true) can read any role request and gets memberProfile', async () => {
     repo.findById.mockResolvedValue(makeRequest('uid-other'));
+    userClient.getMemberProfile.mockResolvedValue(MEMBER_PROFILE);
 
     const result = await useCase.execute({ id: 'req-abc', requesterUid: 'uid-sadmin', isAdmin: true });
 
     expect(result.id).toBe('req-abc');
+    expect(result.memberProfile).not.toBeNull();
   });
 
-  it('user with admin role plus other roles can read any request (isAdmin=true)', async () => {
-    repo.findById.mockResolvedValue(makeRequest('uid-other'));
-
-    const result = await useCase.execute({ id: 'req-abc', requesterUid: 'uid-dual', isAdmin: true });
-
-    expect(result.id).toBe('req-abc');
-  });
-
-  // ── member — own request ─────────────────────────────────────────────────────
+  // ── member — own request (no memberProfile) ──────────────────────────────
 
   it('member can read their own pending role request', async () => {
     repo.findById.mockResolvedValue(makeRequest('uid-member', 'pending'));
@@ -107,6 +169,15 @@ describe('GetRoleRequestByIdUseCase', () => {
     expect(result.id).toBe('req-abc');
     expect(result.status).toBe('pending');
     expect(result.requesterUid).toBe('uid-member');
+  });
+
+  it('non-admin response has memberProfile null (no user-service call)', async () => {
+    repo.findById.mockResolvedValue(makeRequest('uid-member', 'pending'));
+
+    const result = await useCase.execute({ id: 'req-abc', requesterUid: 'uid-member', isAdmin: false });
+
+    expect(result.memberProfile).toBeNull();
+    expect(userClient.getMemberProfile).not.toHaveBeenCalled();
   });
 
   it('member can read their own approved role request', async () => {

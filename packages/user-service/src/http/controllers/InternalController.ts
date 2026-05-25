@@ -68,11 +68,31 @@ export class InternalController {
     } catch (err) { next(err); }
   };
 
-  // GET /internal/users/:uid — used by enrollment-service to enrich approval email payload
+  // GET /internal/users/:uid — returns full member profile for internal callers
+  // Used by enrollment-service to: (1) enrich approval email payload, (2) build
+  // the live memberProfile block in GET /role-requests/:id for admin review.
   getById = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const user = await this.getUserById.execute(req.params.uid);
-      sendSuccess(res, { uid: user.uid, email: user.email, firstName: user.firstName, lastName: user.lastName });
+      sendSuccess(res, {
+        uid:               user.uid,
+        email:             user.email,
+        firstName:         user.firstName,
+        lastName:          user.lastName,
+        phoneNumber:       user.phoneNumber,
+        profilePhotoUrl:   user.profilePhotoUrl,
+        dateOfBirth:       user.dateOfBirth,
+        gender:            user.gender,
+        address:           user.address,
+        preferredLanguage: user.preferredLanguage,
+        roles:             user.roles,
+        status:            user.status,
+        accountCreatedAt:  user.createdAt,
+        qualifications:    user.qualifications,
+        // Legacy single fields kept for backward compat
+        qualificationTitle: user.qualificationTitle,
+        qualificationUrl:   user.qualificationUrl,
+      });
     } catch (err) { next(err); }
   };
 }

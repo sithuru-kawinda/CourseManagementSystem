@@ -66,20 +66,20 @@ export class RoleRequestController {
   };
 
   // GET /role-requests/:id
-  // Admin / super_admin: see any request.
+  // Admin / super_admin: see any request + live memberProfile block.
   // Member (or any other non-admin role): can only see their own request — 403 for others.
   getOne = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { uid, roles } = (req as AuthenticatedRequest).principal;
       const isAdmin = roles.includes('admin') || roles.includes('super_admin');
 
-      const roleRequest = await this.getByIdUseCase.execute({
+      const detail = await this.getByIdUseCase.execute({
         id:           req.params.id,
         requesterUid: uid,
         isAdmin,
       });
 
-      sendSuccess(res, roleRequest);
+      sendSuccess(res, detail);
     } catch (err) { next(err); }
   };
 

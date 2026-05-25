@@ -1122,20 +1122,20 @@ List all requests in the admin review queue.
 
 ### 5.4 `GET /role-requests/:id` ★ Updated
 
-Get a single role request including full applicant details.
+Get a single role request including full applicant details. For `admin` / `super_admin` callers, the response also includes a **`memberProfile`** block with the member's **current live profile** fetched from user-service — giving the reviewer up-to-date information before approving or rejecting.
 
 **Authentication:** Bearer required | **Roles:** Any authenticated (`member`, `student`, `leader`, `g12`, `admin`, `super_admin`)
 
 **Ownership rule** — enforced by `GetRoleRequestByIdUseCase`:
 
-| Caller | Access |
-|--------|--------|
-| `admin` / `super_admin` | May fetch **any** role request |
-| All other roles | May only fetch requests where `roleRequest.requesterUid === caller UID` → `403` otherwise |
+| Caller | Access | `memberProfile` |
+|--------|--------|----------------|
+| `admin` / `super_admin` | May fetch **any** role request | ✅ Included (live from user-service) |
+| All other roles | May only fetch requests where `roleRequest.requesterUid === caller UID` → `403` otherwise | `null` |
 
 #### Responses
 
-**`200 OK`** — Full RoleRequest object (same shape as items in section 5.2):
+**`200 OK` (admin / super_admin)** — Full `RoleRequestDetail` object with live `memberProfile`:
 
 ```json
 {
@@ -1144,22 +1144,67 @@ Get a single role request including full applicant details.
   "requestedRole": "student",
   "status":        "pending",
   "applicantProfile": {
-    "firstName":   "John",
-    "lastName":    "Doe",
-    "phoneNumber": "+94771234567",
-    "email":       "john@example.com",
-    "dateOfBirth": "2000-06-15",
-    "gender":      "male",
-    "address":     "123 Main St, Colombo"
+    "firstName":          "John",
+    "lastName":           "Doe",
+    "phoneNumber":        "+94771234567",
+    "email":              "john@example.com",
+    "dateOfBirth":        "2000-06-15",
+    "gender":             "male",
+    "address":            "123 Main St, Colombo",
+    "qualificationTitle": "BSc Computer Science",
+    "qualificationUrl":   "https://firebasestorage.googleapis.com/..."
   },
   "qualificationTitle":       "BSc Computer Science",
   "qualificationStoragePath": "qualifications/Xf3aBC.../req-001.pdf",
   "decidedByUid":  null,
   "decisionNote":  null,
   "createdAt":     "2026-05-22T09:00:00.000Z",
-  "decidedAt":     null
+  "decidedAt":     null,
+  "memberProfile": {
+    "uid":               "Xf3aBC...",
+    "email":             "john@example.com",
+    "firstName":         "John",
+    "lastName":          "Doe",
+    "phoneNumber":       "+94771234567",
+    "profilePhotoUrl":   "https://firebasestorage.googleapis.com/.../avatars/Xf3aBC....jpg",
+    "dateOfBirth":       "2000-06-15",
+    "gender":            "male",
+    "address":           "123 Main St, Colombo",
+    "preferredLanguage": "en",
+    "roles":             ["member"],
+    "status":            "approved",
+    "accountCreatedAt":  "2026-04-10T07:30:00.000Z",
+    "qualifications": [
+      {
+        "id":      "qual-001",
+        "title":   "BSc Computer Science",
+        "fileUrl": "https://firebasestorage.googleapis.com/..."
+      }
+    ]
+  }
 }
 ```
+
+**`200 OK` (non-admin — own request only)** — Same shape but `memberProfile` is `null`:
+
+```json
+{
+  "id":            "req-001",
+  "requesterUid":  "Xf3aBC...",
+  "requestedRole": "student",
+  "status":        "pending",
+  "applicantProfile": { "..." : "..." },
+  "qualificationTitle":       "BSc Computer Science",
+  "qualificationStoragePath": "qualifications/Xf3aBC.../req-001.pdf",
+  "decidedByUid": null,
+  "decisionNote": null,
+  "createdAt":    "2026-05-22T09:00:00.000Z",
+  "decidedAt":    null,
+  "memberProfile": null
+}
+```
+
+> **Note:** `memberProfile` data is fetched live from user-service on every admin request — it always reflects the member's current profile, unlike `applicantProfile` which is a snapshot taken at submission time. If user-service is temporarily unavailable, `memberProfile` degrades to `null` (the role request data is still returned).
 
 **`403 Forbidden`** → `FORBIDDEN` — non-admin caller tried to view another user's request
 
@@ -3039,27 +3084,59 @@ Readiness probe.
 | `requesterUid` | string | FK → users |
 | `requestedRole` | string | `"student"` — only value at this stage |
 | `status` | string | `pending` \| `approved` \| `rejected` |
-| `applicantProfile` | ApplicantProfile | Nested object — see below ★ |
-| `qualificationTitle` | string | Admin-visible label for the qualification PDF |
-| `qualificationStoragePath` | string | Internal Firebase Storage path — use `GET /role-requests/:id/qualification` to obtain a signed URL |
+| `applicantProfile` | ApplicantProfile | Snapshot taken at submission time — see below |
+| `qualificationTitle` | string or null | Admin-visible label for the qualification PDF |
+| `qualificationStoragePath` | string or null | Internal Firebase Storage path — use `GET /role-requests/:id/qualification` to obtain a signed URL |
 | `decidedByUid` | string or null | UID of admin who approved/rejected |
 | `decisionNote` | string or null | Optional note from the reviewer |
 | `createdAt` | string | ISO 8601 |
 | `decidedAt` | string or null | ISO 8601 — set when status changes from `pending` |
+| `memberProfile` | MemberProfile or null | **Admin only** — live member profile fetched from user-service; `null` for non-admin callers or if user-service is unavailable |
 
-#### ApplicantProfile ★ NEW
+#### ApplicantProfile
 
-Nested inside `RoleRequest.applicantProfile`. All fields are provided by the member at submission time.
+Nested inside `RoleRequest.applicantProfile`. Snapshot of the member's profile at the time they submitted the request. May differ from current live data.
 
 | Field | Type | Notes |
 |-------|------|-------|
 | `firstName` | string | 1–100 chars |
 | `lastName` | string | 1–100 chars |
-| `phoneNumber` | string | 5–30 chars |
+| `phoneNumber` | string or null | 5–30 chars |
 | `email` | string | Valid email address |
-| `dateOfBirth` | string | `YYYY-MM-DD` |
-| `gender` | string | `male` \| `female` \| `other` |
-| `address` | string | 1–500 chars |
+| `dateOfBirth` | string or null | `YYYY-MM-DD` |
+| `gender` | string or null | `male` \| `female` \| `other` |
+| `address` | string or null | 1–500 chars |
+| `qualificationTitle` | string or null | Label snapshotted from the uploaded PDF |
+| `qualificationUrl` | string or null | Firebase Storage URL snapshotted at submission |
+
+#### MemberProfile ★ NEW
+
+Live member profile included in `GET /role-requests/:id` responses **for admin and super_admin callers only**. Always reflects the member's current state — use this for the approval review UI.
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `uid` | string | Firebase Auth UID |
+| `email` | string | Current registered email |
+| `firstName` | string | Current first name |
+| `lastName` | string | Current last name |
+| `phoneNumber` | string or null | Current phone number |
+| `profilePhotoUrl` | string or null | Current avatar URL (Firebase Storage) |
+| `dateOfBirth` | string or null | `YYYY-MM-DD` |
+| `gender` | string or null | `male` \| `female` \| `other` |
+| `address` | string or null | Current address |
+| `preferredLanguage` | string | `en` \| `si` \| `ta` |
+| `roles` | string[] | Current roles array e.g. `["member"]` |
+| `status` | string | `approved` \| `pending_approval` \| `suspended` \| `rejected` |
+| `accountCreatedAt` | string | ISO 8601 — when the user account was registered |
+| `qualifications` | Qualification[] | All uploaded qualifications (ordered list) |
+
+#### Qualification (inside MemberProfile.qualifications)
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `id` | string | UUID |
+| `title` | string | e.g. "Bachelor of Theology" |
+| `fileUrl` | string or null | Firebase Storage download URL; `null` if no PDF uploaded |
 
 ---
 

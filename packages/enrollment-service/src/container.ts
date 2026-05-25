@@ -49,7 +49,7 @@ const rejectRoleReq        = new RejectRoleRequestUseCase(roleRequestRepo, outbo
 const listRoleReqs         = new GetRoleRequestsUseCase(roleRequestRepo);
 const myRoleReqs           = new GetMyRoleRequestsUseCase(roleRequestRepo);
 const qualificationUseCase = new GetRoleRequestQualificationUseCase(roleRequestRepo, storageRepo);
-const getByIdUseCase       = new GetRoleRequestByIdUseCase(roleRequestRepo);
+const getByIdUseCase       = new GetRoleRequestByIdUseCase(roleRequestRepo, userClient);
 
 export const container = {
   registrationController:       new RegistrationController(regRepo, approveReg, rejectReg, bulkApprove),
