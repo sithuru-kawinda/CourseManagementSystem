@@ -466,7 +466,7 @@ Update own profile. `email`, `roles`, `status` are immutable through this endpoi
 | `dateOfBirth` | string\|null | No | `YYYY-MM-DD` |
 | `gender` | string\|null | No | `male` \| `female` \| `other` |
 | `address` | string\|null | No | 1–500 chars |
-| `qualificationTitle` | string\|null | No | 1–200 chars — e.g. `"Bachelor of Theology"` |
+| `qualificationTitle` | string\|null | No | Any length — e.g. `"Bachelor of Theology"` |
 
 > `dateOfBirth`, `gender`, `address`, and `qualificationTitle` are required before submitting a role request via `POST /role-requests`.
 
