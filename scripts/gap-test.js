@@ -1,7 +1,11 @@
 'use strict';
 const BASE    = 'http://localhost:3000/api/v1';
+const ONLINE  = process.argv.includes('--online');
 const API_KEY = 'AIzaSyDudm6GFhmqLd6zVW0igYL0myX-vN9H5-0';
-const AUTH_URL = `https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${API_KEY}`;
+// Auto-detect emulator mode — same pattern as smoke-test.js
+const AUTH_URL = ONLINE
+  ? `https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${API_KEY}`
+  : `http://127.0.0.1:9099/www.googleapis.com/identitytoolkit/v3/relyingparty/verifyPassword?key=${API_KEY}`;
 
 const pass = [], fail = [];
 
