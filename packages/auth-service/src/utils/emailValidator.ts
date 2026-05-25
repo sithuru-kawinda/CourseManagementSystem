@@ -19,6 +19,13 @@
 import { promises as dns } from 'dns';
 import { logger }          from '@shared/logger';
 
+/**
+ * Emulator bypass — skip DNS/disposable checks in local development.
+ * Consistent with the federated OAuth emulator bypass pattern.
+ * Set FIREBASE_AUTH_EMULATOR_HOST to activate.
+ */
+const EMULATOR_MODE = Boolean(process.env.FIREBASE_AUTH_EMULATOR_HOST);
+
 // ── Disposable email domain blocklist ────────────────────────────────────────
 // Common throwaway / temporary email providers
 const DISPOSABLE_DOMAINS = new Set([
@@ -49,6 +56,11 @@ export async function isEmailReachable(email: string): Promise<{
   valid:  boolean;
   reason: string;
 }> {
+  // Emulator bypass — skip DNS checks so smoke/integration tests work with test domains
+  if (EMULATOR_MODE) {
+    return { valid: true, reason: 'OK' };
+  }
+
   const parts  = email.split('@');
   const domain = parts[1]?.toLowerCase();
 
