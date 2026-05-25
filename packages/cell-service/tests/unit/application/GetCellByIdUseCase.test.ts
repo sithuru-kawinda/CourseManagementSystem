@@ -1,10 +1,10 @@
-import { GetCellByIdUseCase }    from '../../../src/application/use-cases/GetCellByIdUseCase';
+﻿import { GetCellByIdUseCase }    from '../../../src/application/use-cases/GetCellByIdUseCase';
 import { ICellGroupRepository }  from '../../../src/domain/repositories/ICellGroupRepository';
 import { CellGroup }             from '../../../src/domain/entities/CellGroup';
 
 const makeRepo = (): jest.Mocked<ICellGroupRepository> => ({
   findById: jest.fn(), findByMember: jest.fn(), findAll: jest.fn(),
-  create: jest.fn(), update: jest.fn(),
+  create: jest.fn(), update: jest.fn(), delete: jest.fn(),
 });
 
 const makeCell = (overrides: Partial<{ leaderUid: string; members: string[] }> = {}): CellGroup =>

@@ -33,7 +33,7 @@ export class AppleRevokeUseCase {
     // Revocation is best-effort — errors are logged but not surfaced to the caller
     await this.appleClient
       .revokeToken(refreshToken, 'refresh_token')
-      .catch(err => logger.warn({ uid, err }, 'Apple token revocation failed — continuing account deletion'));
+      .catch((err: unknown) => logger.warn({ uid, err }, 'Apple token revocation failed — continuing account deletion'));
 
     // Clear the stored token regardless of revocation outcome
     await getFirestore().collection('users').doc(uid).update({

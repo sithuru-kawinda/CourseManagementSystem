@@ -8,6 +8,8 @@ import { GetMyCellsUseCase }                from '../../application/use-cases/Ge
 import { GetCellByIdUseCase }               from '../../application/use-cases/GetCellByIdUseCase';
 import { UpdateCellGroupUseCase }           from '../../application/use-cases/UpdateCellGroupUseCase';
 import { ArchiveCellGroupUseCase }          from '../../application/use-cases/ArchiveCellGroupUseCase';
+import { DeleteCellGroupUseCase }          from '../../application/use-cases/DeleteCellGroupUseCase';
+import { TransferCellOwnershipUseCase }    from '../../application/use-cases/TransferCellOwnershipUseCase';
 import { AddMembersUseCase }                from '../../application/use-cases/AddMembersUseCase';
 import { RemoveMemberUseCase }              from '../../application/use-cases/RemoveMemberUseCase';
 import { CreateJoinRequestUseCase }         from '../../application/use-cases/CreateJoinRequestUseCase';
@@ -17,7 +19,7 @@ import { RejectJoinRequestUseCase }         from '../../application/use-cases/Re
 import {
   createCellSchema, updateCellSchema, addMembersSchema,
   createJoinRequestSchema, decideJoinRequestSchema,
-  listCellsSchema, listJoinRequestsSchema,
+  listCellsSchema, listJoinRequestsSchema, transferOwnershipSchema,
 } from '../validators/cellValidator';
 
 export class CellGroupController {
@@ -28,6 +30,8 @@ export class CellGroupController {
     private readonly getCellByIdUC:   GetCellByIdUseCase,
     private readonly updateUC:        UpdateCellGroupUseCase,
     private readonly archiveUC:       ArchiveCellGroupUseCase,
+    private readonly deleteUC:        DeleteCellGroupUseCase,
+    private readonly transferUC:      TransferCellOwnershipUseCase,
     private readonly addMembersUC:    AddMembersUseCase,
     private readonly removeMemberUC:  RemoveMemberUseCase,
     private readonly createJoinUC:    CreateJoinRequestUseCase,
@@ -87,6 +91,25 @@ export class CellGroupController {
     try {
       const { uid, roles } = (req as AuthenticatedRequest).principal;
       const cell = await this.archiveUC.execute(req.params.id, uid, roles);
+      sendSuccess(res, cell);
+    } catch (err) { next(err); }
+  };
+
+  delete = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { uid, roles } = (req as AuthenticatedRequest).principal;
+      await this.deleteUC.execute(req.params.id, uid, roles);
+      res.status(204).send();
+    } catch (err) { next(err); }
+  };
+
+  transferOwnership = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const parsed = transferOwnershipSchema.safeParse(req.body);
+      if (!parsed.success) return next(fromZodError(parsed.error));
+      const { uid, roles } = (req as AuthenticatedRequest).principal;
+      const requestId      = (req.headers['x-request-id'] as string) ?? '';
+      const cell = await this.transferUC.execute(req.params.id, parsed.data, uid, roles, requestId);
       sendSuccess(res, cell);
     } catch (err) { next(err); }
   };

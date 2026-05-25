@@ -15,9 +15,17 @@ export const app = express();
 
 app.use(helmet());
 app.use(cors({
-  origin:  config.allowedOrigins,
+  origin: config.allowedOrigins,
   methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Authorization', 'Content-Type', 'X-Request-Id', 'X-Idempotency-Key'],
+  allowedHeaders: [
+    'Authorization',
+    'Content-Type',
+    'Accept-Language',
+    'X-Request-Id',
+    'X-Idempotency-Key',
+  ],
+  preflightContinue: false,   // cors handles OPTIONS itself — never passes to next()
+  optionsSuccessStatus: 204,  // return 204 No Content for all preflight requests
 }));
 app.use(requestId);
 app.use(httpLogger);

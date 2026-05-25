@@ -1,13 +1,14 @@
 import { CellGroup, CellState, CellType } from '../entities/CellGroup';
 
 export interface CellGroupListOptions {
-  limit:        number;
-  cursor?:      string;
-  state?:       CellState;
-  type?:        CellType;
-  area?:        string;
-  leaderUid?:   string;
-  search?:      string;
+  limit:          number;
+  cursor?:        string;
+  state?:         CellState;
+  type?:          CellType;
+  area?:          string;
+  leaderUid?:     string;
+  g12LeaderUid?:  string;   // filter cells by their G12 leader
+  search?:        string;
 }
 
 export interface CellGroupListResult {
@@ -22,4 +23,5 @@ export interface ICellGroupRepository {
   findAll(opts: CellGroupListOptions): Promise<CellGroupListResult>;
   create(cell: CellGroup): Promise<void>;
   update(cell: CellGroup): Promise<void>;
+  delete(id: string): Promise<void>;
 }

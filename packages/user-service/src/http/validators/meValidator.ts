@@ -10,6 +10,11 @@ export const updateProfileSchema = z.object({
     .nullable()
     .optional(),
   preferredLanguage: z.enum(['en', 'si', 'ta']).optional(),
+  // Extended profile fields for role request eligibility
+  dateOfBirth:       z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'dateOfBirth must be YYYY-MM-DD').nullable().optional(),
+  gender:            z.enum(['male', 'female', 'other']).nullable().optional(),
+  address:           z.string().min(1).max(500).nullable().optional(),
+  qualificationTitle: z.string().min(1).max(200).nullable().optional(),
 });
 
 const passwordRule = z

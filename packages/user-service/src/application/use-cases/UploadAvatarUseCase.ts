@@ -1,3 +1,4 @@
+import { v4 as uuidv4 }    from 'uuid';
 import { getStorage }      from 'firebase-admin/storage';
 import { createHttpError } from '@shared/errors';
 import { IUserRepository } from '../../domain/repositories/IUserRepository';
@@ -21,11 +22,23 @@ export class UploadAvatarUseCase {
     const filePath = `avatars/${input.uid}.${ext}`;
     const bucket   = getStorage().bucket(config.storageBucket);
     const file     = bucket.file(filePath);
+    const token    = uuidv4();
 
-    await file.save(input.buffer, { contentType: input.mimeType });
-    await file.makePublic();
+    // Upload with a download token embedded in custom metadata.
+    // This produces a browser-loadable Firebase Storage URL that does not require
+    // authentication — no makePublic() needed, and works even when Uniform
+    // Bucket-Level Access is enabled (where makePublic() is silently ignored).
+    await file.save(input.buffer, {
+      contentType: input.mimeType,
+      metadata: {
+        metadata: { firebaseStorageDownloadTokens: token },
+      },
+    });
 
-    const profilePhotoUrl = `https://storage.googleapis.com/${config.storageBucket}/${filePath}`;
+    const encodedPath     = encodeURIComponent(filePath);
+    const profilePhotoUrl =
+      `https://firebasestorage.googleapis.com/v0/b/${config.storageBucket}/o/${encodedPath}?alt=media&token=${token}`;
+
     user.updateProfile({ profilePhotoUrl });
     await this.userRepo.update(user);
     return user;

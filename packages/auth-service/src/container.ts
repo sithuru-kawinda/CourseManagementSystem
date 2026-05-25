@@ -1,6 +1,7 @@
 import { OutboxEventPublisher }              from '@shared/events';
-import { FirestoreLoginAttemptsRepository } from './infrastructure/repositories/FirestoreLoginAttemptsRepository';
-import { FirestoreOtpRepository }           from './infrastructure/repositories/FirestoreOtpRepository';
+import { FirestoreLoginAttemptsRepository }            from './infrastructure/repositories/FirestoreLoginAttemptsRepository';
+import { FirestoreOtpRepository }                      from './infrastructure/repositories/FirestoreOtpRepository';
+import { FirestoreEmailVerificationOtpRepository }     from './infrastructure/repositories/FirestoreEmailVerificationOtpRepository';
 import { EmailClient }                      from './infrastructure/clients/EmailClient';
 import { UserServiceClient }                from './infrastructure/clients/UserServiceClient';
 import { GoogleAuthClient }                 from './infrastructure/clients/GoogleAuthClient';
@@ -13,10 +14,13 @@ import { VerifyOtpAndResetUseCase }         from './application/use-cases/Verify
 import { FederatedSignInUseCase }           from './application/use-cases/FederatedSignInUseCase';
 import { AppleWebCallbackUseCase }          from './application/use-cases/AppleWebCallbackUseCase';
 import { AppleRevokeUseCase }               from './application/use-cases/AppleRevokeUseCase';
+import { ResendVerificationUseCase }        from './application/use-cases/ResendVerificationUseCase';
+import { VerifyEmailOtpUseCase }            from './application/use-cases/VerifyEmailOtpUseCase';
 import { AuthController }                   from './http/controllers/AuthController';
 
 const attemptsRepo  = new FirestoreLoginAttemptsRepository();
 const otpRepo       = new FirestoreOtpRepository();
+const emailVerifOtpRepo = new FirestoreEmailVerificationOtpRepository();
 const emailClient   = new EmailClient();
 const userClient    = new UserServiceClient();
 const googleClient  = new GoogleAuthClient();
@@ -29,8 +33,10 @@ const trackAttemptsUseCase   = new TrackLoginAttemptsUseCase(attemptsRepo);
 const requestResetUseCase    = new RequestPasswordResetUseCase(otpRepo, emailClient);
 const verifyOtpUseCase       = new VerifyOtpAndResetUseCase(otpRepo);
 const federatedSignInUseCase = new FederatedSignInUseCase(googleClient, appleClient, outbox);
-const appleCallbackUseCase   = new AppleWebCallbackUseCase(appleClient, outbox);
-const appleRevokeUseCase     = new AppleRevokeUseCase(appleClient);
+const appleCallbackUseCase      = new AppleWebCallbackUseCase(appleClient, outbox);
+const appleRevokeUseCase        = new AppleRevokeUseCase(appleClient);
+const resendVerificationUseCase = new ResendVerificationUseCase(emailVerifOtpRepo, emailClient);
+const verifyEmailOtpUseCase     = new VerifyEmailOtpUseCase(emailVerifOtpRepo);
 
 export const container = {
   authController: new AuthController(
@@ -42,6 +48,8 @@ export const container = {
     federatedSignInUseCase,
     appleCallbackUseCase,
     appleRevokeUseCase,
+    resendVerificationUseCase,
+    verifyEmailOtpUseCase,
     appleClient,
   ),
 };

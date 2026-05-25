@@ -3,7 +3,7 @@ import { IUserRepository }                        from '../../../src/domain/repo
 import { User }                                   from '../../../src/domain/entities/User';
 
 // ── Firebase Storage mock ─────────────────────────────────────────────────────
-const mockFile = { save: jest.fn(), makePublic: jest.fn() };
+const mockFile   = { save: jest.fn() };
 const mockBucket = { file: jest.fn().mockReturnValue(mockFile) };
 const mockGetStorage = jest.fn().mockReturnValue({ bucket: jest.fn().mockReturnValue(mockBucket) });
 
@@ -35,6 +35,9 @@ const JPEG_BUF = Buffer.from('jpg-bytes');
 const pngInput  = (uid = 'uid-1'): UploadAvatarInput => ({ uid, buffer: PNG_BUF,  mimeType: 'image/png'  });
 const jpegInput = (uid = 'uid-1'): UploadAvatarInput => ({ uid, buffer: JPEG_BUF, mimeType: 'image/jpeg' });
 
+// Firebase Storage download URL prefix for assertions
+const FB_URL_PREFIX = 'https://firebasestorage.googleapis.com/v0/b/test-bucket.appspot.com/o/';
+
 describe('UploadAvatarUseCase', () => {
   let repo:    jest.Mocked<IUserRepository>;
   let useCase: UploadAvatarUseCase;
@@ -42,26 +45,35 @@ describe('UploadAvatarUseCase', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockFile.save.mockResolvedValue(undefined);
-    mockFile.makePublic.mockResolvedValue(undefined);
     repo    = makeRepo();
     useCase = new UploadAvatarUseCase(repo);
   });
 
   describe('happy path', () => {
-    it('uploads a PNG and returns user with profilePhotoUrl set', async () => {
+    it('uploads a PNG with download token metadata and returns a browser-loadable URL', async () => {
       repo.findById.mockResolvedValue(makeUser());
       repo.update.mockResolvedValue(undefined);
 
       const user = await useCase.execute(pngInput());
 
-      expect(mockFile.save).toHaveBeenCalledWith(PNG_BUF, { contentType: 'image/png' });
-      expect(mockFile.makePublic).toHaveBeenCalled();
-      expect(user.profilePhotoUrl).toBe(
-        'https://storage.googleapis.com/test-bucket.appspot.com/avatars/uid-1.png',
+      // save() must include the download token in custom metadata (no makePublic call)
+      expect(mockFile.save).toHaveBeenCalledWith(
+        PNG_BUF,
+        expect.objectContaining({
+          contentType: 'image/png',
+          metadata: {
+            metadata: { firebaseStorageDownloadTokens: expect.stringMatching(/^[0-9a-f-]{36}$/) },
+          },
+        }),
       );
-      expect(repo.update).toHaveBeenCalledWith(expect.objectContaining({
-        profilePhotoUrl: 'https://storage.googleapis.com/test-bucket.appspot.com/avatars/uid-1.png',
-      }));
+
+      // URL must be a Firebase Storage download URL (not a raw GCS URL)
+      expect(user.profilePhotoUrl).toMatch(
+        new RegExp(`^${FB_URL_PREFIX}avatars%2Fuid-1\\.png\\?alt=media&token=[0-9a-f-]{36}$`),
+      );
+      expect(repo.update).toHaveBeenCalledWith(
+        expect.objectContaining({ profilePhotoUrl: user.profilePhotoUrl }),
+      );
     });
 
     it('uploads a JPEG and uses .jpg extension in the URL', async () => {
@@ -70,8 +82,8 @@ describe('UploadAvatarUseCase', () => {
 
       const user = await useCase.execute(jpegInput());
 
-      expect(user.profilePhotoUrl).toBe(
-        'https://storage.googleapis.com/test-bucket.appspot.com/avatars/uid-1.jpg',
+      expect(user.profilePhotoUrl).toMatch(
+        new RegExp(`^${FB_URL_PREFIX}avatars%2Fuid-1\\.jpg\\?alt=media&token=[0-9a-f-]{36}$`),
       );
     });
 
@@ -110,15 +122,6 @@ describe('UploadAvatarUseCase', () => {
       mockFile.save.mockRejectedValue(new Error('Storage unavailable'));
 
       await expect(useCase.execute(pngInput())).rejects.toThrow('Storage unavailable');
-      expect(repo.update).not.toHaveBeenCalled();
-    });
-
-    it('propagates makePublic errors without updating the user', async () => {
-      repo.findById.mockResolvedValue(makeUser());
-      mockFile.save.mockResolvedValue(undefined);
-      mockFile.makePublic.mockRejectedValue(new Error('ACL error'));
-
-      await expect(useCase.execute(pngInput())).rejects.toThrow('ACL error');
       expect(repo.update).not.toHaveBeenCalled();
     });
   });

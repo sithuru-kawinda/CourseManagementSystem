@@ -38,7 +38,11 @@ describe('RejectEnrollmentUseCase', () => {
     courseClient = makeCourseClient();
     useCase      = new RejectEnrollmentUseCase(repo, outbox, userClient, courseClient);
 
-    userClient.getUser.mockResolvedValue({ email: 'bob@example.com', firstName: 'Bob', lastName: 'Jones' });
+    userClient.getUser.mockResolvedValue({
+      email: 'bob@example.com', firstName: 'Bob', lastName: 'Jones',
+      phoneNumber: null, dateOfBirth: null, gender: null, address: null,
+      qualificationTitle: null, qualificationUrl: null,
+    });
     courseClient.getCourseTitle.mockResolvedValue('Bible Foundations');
   });
 
@@ -114,7 +118,7 @@ describe('RejectEnrollmentUseCase', () => {
     const result = await useCase.execute('uid1_c1', 'No space.', 'req-1');
     expect(result.state).toBe('rejected');
     expect(outbox.publishWithBatch).toHaveBeenCalledWith(
-      expect.objectContaining({ payload: expect.objectContaining({ email: undefined }) }),
+      expect.objectContaining({ payload: expect.objectContaining({ email: null }) }),
     );
   });
 
@@ -127,7 +131,7 @@ describe('RejectEnrollmentUseCase', () => {
     const result = await useCase.execute('uid1_c1', 'No space.', 'req-1');
     expect(result.state).toBe('rejected');
     expect(outbox.publishWithBatch).toHaveBeenCalledWith(
-      expect.objectContaining({ payload: expect.objectContaining({ courseTitle: undefined }) }),
+      expect.objectContaining({ payload: expect.objectContaining({ courseTitle: null }) }),
     );
   });
 

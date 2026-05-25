@@ -1,3 +1,4 @@
+import { v4 as uuidv4 }                    from 'uuid';
 import { Request, Response, NextFunction } from 'express';
 import { getStorage }                       from 'firebase-admin/storage';
 import { AuthenticatedRequest }             from '@shared/auth-middleware';
@@ -8,10 +9,15 @@ import { FileReportUseCase }                from '../../application/use-cases/Fi
 import { GetReportsUseCase }                from '../../application/use-cases/GetReportsUseCase';
 import { GetReportByIdUseCase }             from '../../application/use-cases/GetReportByIdUseCase';
 import { VoidReportUseCase }                from '../../application/use-cases/VoidReportUseCase';
-import { fileReportSchema, voidReportSchema, listReportsSchema } from '../validators/reportValidator';
+import { UpdateCellReportUseCase }          from '../../application/use-cases/UpdateCellReportUseCase';
+import { GetNetworkReportsUseCase }         from '../../application/use-cases/GetNetworkReportsUseCase';
+import { fileReportSchema, voidReportSchema, listReportsSchema, updateReportSchema } from '../validators/reportValidator';
 import { CellType } from '../../domain/entities/CellGroup';
+import { config }   from '../../config';
 
-// ── helper: upload files to Firebase Storage, return public URLs ────────────
+// ── helper: upload files to Firebase Storage, return browser-loadable URLs ──
+// Uses a per-file download token embedded in custom metadata so the URL works
+// in <img> tags without credentials, even with Uniform Bucket-Level Access on.
 async function uploadPhotosToStorage(cellId: string, files: Express.Multer.File[]): Promise<string[]> {
   if (files.length === 0) return [];
   const bucket    = getStorage().bucket();
@@ -22,9 +28,18 @@ async function uploadPhotosToStorage(cellId: string, files: Express.Multer.File[
     const ext     = f.mimetype === 'image/png' ? 'png' : 'jpg';
     const path    = `cells/${cellId}/report-photos/${timestamp}-${i + 1}.${ext}`;
     const fileRef = bucket.file(path);
-    await fileRef.save(f.buffer, { contentType: f.mimetype, resumable: false });
-    await fileRef.makePublic();
-    urls.push(fileRef.publicUrl());
+    const token   = uuidv4();
+    await fileRef.save(f.buffer, {
+      contentType: f.mimetype,
+      resumable:   false,
+      metadata: {
+        metadata: { firebaseStorageDownloadTokens: token },
+      },
+    });
+    const encodedPath = encodeURIComponent(path);
+    urls.push(
+      `https://firebasestorage.googleapis.com/v0/b/${config.storageBucket}/o/${encodedPath}?alt=media&token=${token}`,
+    );
   }
   return urls;
 }
@@ -35,6 +50,8 @@ export class CellReportController {
     private readonly getReportsUC: GetReportsUseCase,
     private readonly getOneUC:     GetReportByIdUseCase,
     private readonly voidUC:       VoidReportUseCase,
+    private readonly updateUC:        UpdateCellReportUseCase,
+    private readonly networkReportsUC: GetNetworkReportsUseCase,
   ) {}
 
   listReports = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
@@ -110,6 +127,45 @@ export class CellReportController {
         req.params.id, req.params.rid, parsed.data.reason, uid, roles, requestId,
       );
       sendSuccess(res, report);
+    } catch (err) { next(err); }
+  };
+
+  /**
+   * PATCH /cells/:id/reports/:rid
+   * Edit a cell report within 24 hours of filing.
+   * Only the original filer or super_admin can edit.
+   * Voided reports cannot be edited.
+   */
+  updateReport = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const parsed = updateReportSchema.safeParse(req.body);
+      if (!parsed.success) return next(fromZodError(parsed.error));
+
+      const { uid, roles } = (req as AuthenticatedRequest).principal;
+      const report = await this.updateUC.execute(
+        req.params.id,
+        req.params.rid,
+        parsed.data,
+        uid,
+        roles,
+      );
+      sendSuccess(res, report);
+    } catch (err) { next(err); }
+  };
+
+  /**
+   * GET /cells/network/reports
+   * Returns reports from all cells in the caller's G12 network.
+   * G12 sees reports from cells where g12LeaderUid === callerUid.
+   * Leader sees their own cell's reports. Admin sees all cells.
+   */
+  networkReports = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const parsed = listReportsSchema.safeParse(req.query);
+      if (!parsed.success) return next(fromZodError(parsed.error));
+      const { uid, roles } = (req as AuthenticatedRequest).principal;
+      const result = await this.networkReportsUC.execute(parsed.data, uid, roles);
+      sendSuccess(res, result);
     } catch (err) { next(err); }
   };
 

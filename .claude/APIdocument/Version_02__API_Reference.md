@@ -1,12 +1,12 @@
-# TCCR — API Reference Document
+﻿# TCCR — API Reference Document
 ## The Christian Center Rathmalana · `tccr-backend`
-### REST API · Version 2.8.0 · Base URL: `https://cms.api.bethelnet.au/api/v1`
+### REST API · Version 2.19.0 · Base URL: `https://cms.api.bethelnet.au/api/v1`
 
-**Version:** 2.8.0
-**Date:** 22 May 2026
+**Version:** 2.19.0
+**Date:** 24 May 2026
 **Organisation:** Future CX Lanka (Pvt) Ltd
 **Status:** Release Baseline
-**Supersedes:** Version 2.7.0 (22 May 2026)
+**Supersedes:** Version 2.18.0 (24 May 2026)
 
 ---
 
@@ -14,10 +14,13 @@
 
 1. [Getting Started](#1-getting-started)
 2. [Auth Endpoints](#2-auth-endpoints)
+   - 2.1 [Register](#21-post-authregister) · 2.2 [Google](#22-post-authfederatedgoogle--new-v2) · 2.3 [Apple](#23-post-authfederatedapple--new-v2) · 2.4 [Logout](#24-post-authlogout)
+   - 2.5 [Password Reset](#25-post-authpassword-reset) · 2.6 [Verify OTP](#26-post-authpassword-resetverify) · 2.7 [Track Failure](#27-post-authtrack-failure)
+   - **2.8 [Resend Verification](#28-post-authresend-verification--new) ★** · **2.9 [Verify Email OTP](#29-post-authverify-email--new) ★**
 3. [Profile Endpoints (Me)](#3-profile-endpoints-me)
    - 3.1 [Get Profile](#31-get-me) · 3.2 [Update Profile](#32-patch-me) · 3.3 [Change Password](#33-post-mechange-password)
-   - 3.4 [Upload Avatar](#34-post-meavatar) · 3.5 [Link Provider](#35-post-meproviders-link) · 3.6 [Unlink Provider](#36-delete-meproviders-provider)
-   - 3.7 [Register FCM Token](#37-post-mefcm-token) · 3.8 [Deregister FCM Token](#38-delete-mefcm-token) · 3.9 [Notification Preferences](#39-patch-menotificationspreferences)
+   - 3.4 [Upload Avatar](#34-post-meavatar) · 3.5 [Upload Qualification](#35-post-mequalification--new) · 3.6 [Link Provider](#36-post-meproviders-link--new-v2) · 3.7 [Unlink Provider](#37-delete-meproviders-provider--new-v2)
+   - 3.8 [Register FCM Token](#38-post-mefcm-token--new-v2) · 3.9 [Deregister FCM Token](#39-delete-mefcm-token--new-v2) · 3.10 [Notification Preferences](#310-patch-menotificationspreferences--new-v2)
 4. [User Management — Admin](#4-user-management--admin)
    - 4.1 [List Users](#41-get-users) · 4.2 [Get User](#42-get-usersuid) · 4.3 [Assign Roles](#43-patch-usersuidroles--new-v2)
    - 4.4 [User Audit Log](#44-get-usersuidaudit-log--new-v2) · 4.5 [Suspend](#45-post-usersusidsuspend) · 4.6 [Reactivate](#46-post-usersuidreactivate)
@@ -47,13 +50,14 @@
     - 13.4 [Get Cell](#134-get-cellsid)
     - 13.5 [Update Cell](#135-patch-cellsid)
     - 13.6 [Archive Cell](#136-post-cellsidarchive)
-    - 13.7 [Add Members (Direct)](#137-post-cellsidmembers)
-    - 13.8 [Remove Member](#138-delete-cellsidmembersuid)
-    - 13.9 [Apply to Join (Member)](#139-post-cellsidjoin-requests)
-    - 13.10 [List Join Requests](#1310-get-cellsidjoin-requests)
-    - 13.11 [Approve Join Request](#1311-post-cellsidjoin-requestsridapprove)
-    - 13.12 [Reject Join Request](#1312-post-cellsidjoin-requestsridreject)
+    - 13.7 [Delete Cell ★ NEW](#137-delete-cellsid--new) · **13.7b [Transfer Ownership ★ NEW](#137b-post-cellsidtransfer-ownership--new)** · 13.8 [Add Members (Direct)](#138-post-cellsidmembers)
+    - 13.9 [Remove Member](#138-delete-cellsidmembersuid)
+    - 13.10 [Apply to Join (Member)](#139-post-cellsidjoin-requests)
+    - 13.11 [List Join Requests](#1310-get-cellsidjoin-requests)
+    - 13.12 [Approve Join Request](#1311-post-cellsidjoin-requestsridapprove)
+    - 13.13 [Reject Join Request](#1312-post-cellsidjoin-requestsridreject)
 14. [Cell Report Endpoints — NEW V2](#14-cell-report-endpoints--new-v2)
+   - **14.6 [Network Reports (G12 view) ★ NEW](#146-get-cellsnetworkreports--new)**
 15. [Analytics Endpoints — NEW V2](#15-analytics-endpoints--new-v2)
 16. [Notification Endpoints](#16-notification-endpoints)
 17. [Audit Log Endpoints](#17-audit-log-endpoints)
@@ -89,6 +93,8 @@ Authorization: Bearer <firebase-id-token>
 - **V2 locale header:** `Accept-Language: si` or `Accept-Language: ta` to receive localised notifications and responses; falls back to user's `preferredLanguage` profile field, then `en`
 
 **Public endpoints (no token required):**
+
+> **Email-verification gate:** After registration, all protected endpoints return `403 EMAIL_NOT_VERIFIED` until the user submits their OTP via `POST /auth/verify-email`. Federated users (Google/Apple) are exempt — Firebase marks them as verified automatically.
 
 | Endpoint | Description |
 |----------|-------------|
@@ -374,6 +380,46 @@ Record a failed login attempt. After **10 consecutive failures in 15 minutes**, 
 
 ---
 
+### 2.8 `POST /auth/resend-verification` ★ NEW
+
+Resend a 6-digit email verification OTP. Always returns `204` even if the email is not found (prevents enumeration). OTP expires in 15 minutes.
+
+**Authentication:** None (public) | **Content-Type:** `application/json`
+
+**Request Body:** `{ "email": "user@example.com" }`
+
+| Response | Condition |
+|----------|-----------|
+| `204 No Content` | OTP sent (or email not found — silent) |
+| `400 EMAIL_ALREADY_VERIFIED` | Email is already verified |
+| `400 VALIDATION_ERROR` | Invalid email format |
+
+---
+
+### 2.9 `POST /auth/verify-email` ★ NEW
+
+Verify email with a 6-digit OTP from the welcome email. Sets `emailVerified = true` in Firebase Auth on success — all protected routes then become accessible.
+
+**Authentication:** None (public) | **Content-Type:** `application/json`
+
+**Request Body:** `{ "email": "user@example.com", "otp": "748349" }`
+
+| Field | Required | Validation |
+|-------|:--------:|-----------|
+| `email` | Yes | Valid RFC-5322 email |
+| `otp` | Yes | Exactly 6 digits |
+
+**OTP Rules:** 15-minute TTL · max 5 wrong attempts (then deleted) · on success: `emailVerified=true` in Firebase Auth
+
+| Response | Condition |
+|----------|-----------|
+| `204 No Content` | Email verified ✅ |
+| `400 INVALID_OTP` | Wrong code (shows remaining attempts) |
+| `400 OTP_EXPIRED` | Code has expired — call `POST /auth/resend-verification` |
+| `400 OTP_MAX_ATTEMPTS` | 5 failed attempts — call `POST /auth/resend-verification` |
+
+---
+
 ## 3. Profile Endpoints (Me)
 
 ---
@@ -410,14 +456,19 @@ Update own profile. `email`, `roles`, `status` are immutable through this endpoi
 
 **Authentication:** Bearer required | **Roles:** Any
 
-```json
-{
-  "firstName":         "Viruli",
-  "lastName":          "Weerasinghe",
-  "preferredLanguage": "ta",
-  "profilePhotoUrl":   "https://..."
-}
-```
+| Field | Type | Required | Validation |
+|-------|------|:--------:|-----------|
+| `firstName` | string | No | 1–100 chars |
+| `lastName` | string | No | 1–100 chars |
+| `profilePhotoUrl` | string\|null | No | Valid URL or null |
+| `phoneNumber` | string\|null | No | International format e.g. `+94771234567` |
+| `preferredLanguage` | string | No | `en` \| `si` \| `ta` |
+| `dateOfBirth` | string\|null | No | `YYYY-MM-DD` |
+| `gender` | string\|null | No | `male` \| `female` \| `other` |
+| `address` | string\|null | No | 1–500 chars |
+| `qualificationTitle` | string\|null | No | 1–200 chars — e.g. `"Bachelor of Theology"` |
+
+> `dateOfBirth`, `gender`, `address`, and `qualificationTitle` are required before submitting a role request via `POST /role-requests`.
 
 **`200 OK`** — Updated User object.
 
@@ -457,7 +508,34 @@ Upload or replace the authenticated user's profile photo. Stored under `avatars/
 
 ---
 
-### 3.5 `POST /me/providers/link` — NEW V2
+### 3.5 `POST /me/qualification` ★ NEW
+
+Upload or replace the authenticated user's qualification PDF. Stored under `qualifications/{uid}.pdf` in Firebase Storage. The download URL is saved as `qualificationUrl` on the user document and is automatically included when a role request is submitted.
+
+**Authentication:** Bearer required | **Roles:** Any
+**Content-Type:** `multipart/form-data`
+
+| Field | Type | Required | Validation |
+|-------|------|:--------:|-----------|
+| `qualification` | file | Yes | PDF only · max **10 MB** · field name `qualification` |
+
+**`200 OK`**
+```json
+{
+  "qualificationUrl":         "https://firebasestorage.googleapis.com/v0/b/bucket/o/qualifications%2Fuid.pdf?alt=media&token=...",
+  "qualificationStoragePath": "qualifications/uid.pdf"
+}
+```
+
+**`400 Bad Request`** → `VALIDATION_ERROR` — no file attached
+
+**`413 Payload Too Large`** → `FILE_TOO_LARGE` — file exceeds 10 MB
+
+**`415 Unsupported Media Type`** → `UNSUPPORTED_MEDIA_TYPE` — file is not a PDF
+
+---
+
+### 3.6 `POST /me/providers/link` — NEW V2
 
 Link a Google or Apple identity to the account (FR-AUTH-010).
 
@@ -471,7 +549,7 @@ Link a Google or Apple identity to the account (FR-AUTH-010).
 
 ---
 
-### 3.6 `DELETE /me/providers/:provider` — NEW V2
+### 3.7 `DELETE /me/providers/:provider` — NEW V2
 
 Unlink a federated provider. Cannot remove the only remaining sign-in method (FR-AUTH-010).
 `:provider` — `google` or `apple`
@@ -484,7 +562,7 @@ Unlink a federated provider. Cannot remove the only remaining sign-in method (FR
 
 ---
 
-### 3.7 `POST /me/fcm-token` — NEW V2
+### 3.8 `POST /me/fcm-token` — NEW V2
 
 Register/refresh an FCM push token. Call after every login and on token rotation (SRS §8.1.1).
 
@@ -498,7 +576,7 @@ Register/refresh an FCM push token. Call after every login and on token rotation
 
 ---
 
-### 3.8 `DELETE /me/fcm-token` — NEW V2
+### 3.9 `DELETE /me/fcm-token` — NEW V2
 
 Remove FCM token on logout or invalidation.
 
@@ -512,7 +590,7 @@ Remove FCM token on logout or invalidation.
 
 ---
 
-### 3.9 `PATCH /me/notifications/preferences` — NEW V2
+### 3.10 `PATCH /me/notifications/preferences` — NEW V2
 
 Update per-channel notification opt-out (FR-NOT-006). Essential notifications always delivered in-app regardless.
 
@@ -534,7 +612,7 @@ Update per-channel notification opt-out (FR-NOT-006). Essential notifications al
 
 List users with filtering.
 
-**Authentication:** Bearer required | **Roles:** `leader`, `g12`, `admin`, `super_admin`
+**Authentication:** Bearer required | **Roles:** `leader`, `g12`, `admin`
 
 > **Scoped view for `leader` / `g12`:** These callers only see users with `status: "approved"` and without `admin` or `super_admin` roles — i.e. members, students, and other leaders/g12s. Admin callers see the full unfiltered list.
 
@@ -589,7 +667,7 @@ Add or remove a **single role** per request. Role change rules:
 | `role` | string | Yes | Any `UserRole` |
 | `action` | string | Yes | `"add"` or `"remove"` |
 
-**`200 OK`** → Updated User object with new `roles[]` array.
+**`204 No Content`**
 
 **`403 Forbidden`** → `FORBIDDEN` — caller does not have permission to assign this role
 
@@ -745,7 +823,7 @@ Use this when a G12 leader, admin, or super admin needs to on-board a cell leade
 
 Promote an **already-registered** user to `leader` or `g12`. Unlike `POST /users` (section 4.7), this endpoint targets an existing user rather than creating a new account. Promotes the Firebase custom claims and Firestore `roles[]` array atomically.
 
-> **Use `POST /users` (4.7) to create a brand-new account.  
+> **Use `POST /users` (4.7) to create a brand-new account.
 > Use `POST /users/:uid/promote` (4.8) to elevate an existing member.**
 
 **Authentication:** Bearer required | **Roles:** `leader`, `g12`, `admin`, `super_admin`
@@ -753,7 +831,7 @@ Promote an **already-registered** user to `leader` or `g12`. Unlike `POST /users
 **Caller-role business rules (enforced in use case, beyond the route guard):**
 
 | Caller | Can promote to |
-|--------|---------------|
+|--------|----------------|
 | `g12`, `admin`, `super_admin` | `leader` or `g12` |
 | `leader` | `g12` only (cannot create more leaders) |
 | Any | Cannot target a user who holds `admin` or `super_admin` |
@@ -783,7 +861,7 @@ Promote an **already-registered** user to `leader` or `g12`. Unlike `POST /users
 
 ---
 
-### 4.9 `DELETE /users/:uid` ★ NEW
+### 4.9 `DELETE /users/:uid` ★ NEW 
 
 Soft-delete a regular (non-admin) user account. Sets `deletedAt` in Firestore and disables the Firebase Auth account so the user can no longer sign in. The record is preserved for audit purposes.
 
@@ -826,6 +904,64 @@ Soft-delete a regular (non-admin) user account. Sets `deletedAt` in Firestore an
 
 ---
 
+### 4.10 `POST /users/:uid/demote` ★ NEW
+
+Remove a specific role from a user and revert them to their remaining roles. Firebase Auth custom claims are updated immediately — the user's access changes on their next token refresh.
+
+**Authentication:** Bearer required | **Roles:** `leader`, `g12`, `admin`, `super_admin`
+
+#### Request Body
+
+```json
+{ "role": "leader" }
+```
+
+| Field | Type | Required | Values |
+|-------|------|:--------:|--------|
+| `role` | string | Yes | `"student"` \| `"leader"` \| `"g12"` |
+
+#### Caller-Role Permission Matrix
+
+| Caller | Can demote |
+|--------|-----------|
+| `super_admin` | `student`, `leader`, `g12` |
+| `admin` | `student`, `leader`, `g12` |
+| `g12` | `leader` only — **cannot demote another `g12`** |
+| `leader` | `g12` only |
+
+**Additional guards enforced in use case:**
+- Cannot demote yourself
+- Cannot demote an `admin` or `super_admin` via this endpoint
+- `member` role can never be removed (permanent base role)
+- Idempotent — returns `204` silently if the user does not already hold the role
+
+#### What changes after a successful demote
+
+| Before | After (example: remove `leader`) | Access |
+|--------|-------------------------------------|--------|
+| `roles: ["member","leader"]` | `roles: ["member"]` | Member access only |
+| `roles: ["member","student","leader"]` | `roles: ["member","student"]` | Student access |
+| `roles: ["member","g12"]` | `roles: ["member"]` | Member access only |
+
+> **Token refresh required:** The user must sign out and sign in again (or call `user.getIdToken(true)`) to receive a new token with the updated roles claim. Existing tokens remain valid until they expire (1 hour).
+
+#### Responses
+
+**`204 No Content`** — Role removed; access updated.
+
+**`400 Bad Request`** → `VALIDATION_ERROR` — Invalid role value
+```json
+{ "error": { "code": "VALIDATION_ERROR", "message": "role: Invalid enum value" }, "requestId": "..." }
+```
+
+**`403 Forbidden`** → `FORBIDDEN`
+```json
+{ "error": { "code": "FORBIDDEN", "message": "Your role does not permit you to remove the 'leader' role." }, "requestId": "..." }
+```
+
+**`404 Not Found`** → `USER_NOT_FOUND`
+
+---
 ## 5. Role Requests — NEW V2
 
 After registration every user is a **Member**. From there they can follow two paths — both require Admin/Super Admin approval:
@@ -855,27 +991,22 @@ The Bible School path is **two separate steps**:
 
 ### 5.1 `POST /role-requests`
 
-Member submits an application for the `student` role. The request must include the applicant's personal profile and an education qualification PDF. Once approved the member gains the `student` role and can browse courses and enroll separately.
+Member submits an application for the `student` role. Personal details and qualification PDF are read automatically from the member's existing profile — no extra fields needed in the request body.
+
+> **Before submitting**, the member must have completed their profile via `PATCH /me` (§3.2) and uploaded their qualification PDF via `POST /me/qualification` (§3.5). The system snapshots the profile at submission time.
 
 **Authentication:** Bearer required | **Roles:** `member`
-**Content-Type:** `multipart/form-data`
+**Content-Type:** `application/json`
 
-#### Request Fields
+#### Request Body
+
+```json
+{ "requestedRole": "student" }
+```
 
 | Field | Type | Required | Validation |
 |-------|------|:--------:|-----------|
 | `requestedRole` | string | Yes | `"student"` only |
-| `firstName` | string | Yes | 1–100 chars |
-| `lastName` | string | Yes | 1–100 chars |
-| `phoneNumber` | string | Yes | 5–30 chars |
-| `email` | string | Yes | Valid email address |
-| `dateOfBirth` | string | Yes | `YYYY-MM-DD` |
-| `gender` | string | Yes | `male` \| `female` \| `other` |
-| `address` | string | Yes | 1–500 chars |
-| `qualificationTitle` | string | Yes | 1–200 chars — descriptive title for the PDF (e.g. `"BSc Computer Science"`) |
-| `qualificationFile` | file | Yes | PDF only · max **10 MB** · field name `qualificationFile` |
-
-> All non-file fields are form fields (strings), not JSON. Send as `multipart/form-data` — do **not** use `application/json`.
 
 #### Responses
 
@@ -887,16 +1018,18 @@ Member submits an application for the `student` role. The request must include t
   "requestedRole": "student",
   "status":        "pending",
   "applicantProfile": {
-    "firstName":   "John",
-    "lastName":    "Doe",
-    "phoneNumber": "+94771234567",
-    "email":       "john@example.com",
-    "dateOfBirth": "2000-06-15",
-    "gender":      "male",
-    "address":     "123 Main St, Colombo"
+    "firstName":          "John",
+    "lastName":           "Doe",
+    "phoneNumber":        "+94771234567",
+    "email":              "john@example.com",
+    "dateOfBirth":        "2000-06-15",
+    "gender":             "male",
+    "address":            "123 Main St, Colombo",
+    "qualificationTitle": "BSc Computer Science",
+    "qualificationUrl":   "https://firebasestorage.googleapis.com/v0/b/bucket/o/qualifications%2Fuid.pdf?alt=media&token=..."
   },
   "qualificationTitle":       "BSc Computer Science",
-  "qualificationStoragePath": "qualifications/Xf3aBC.../req-001.pdf",
+  "qualificationStoragePath": null,
   "decidedByUid":  null,
   "decisionNote":  null,
   "createdAt":     "2026-05-22T09:00:00.000Z",
@@ -904,24 +1037,19 @@ Member submits an application for the `student` role. The request must include t
 }
 ```
 
-**`400 Bad Request`** → `VALIDATION_ERROR` — missing required field or invalid value
+**`400 Bad Request`** → `VALIDATION_ERROR` — invalid or missing `requestedRole`
 ```json
-{ "error": { "code": "VALIDATION_ERROR", "message": "dateOfBirth: Must be YYYY-MM-DD" }, "requestId": "..." }
+{ "error": { "code": "VALIDATION_ERROR", "message": "requestedRole: Invalid literal value, expected \"student\"" }, "requestId": "..." }
+```
+
+**`404 Not Found`** → `USER_NOT_FOUND` — profile could not be loaded from user-service
+```json
+{ "error": { "code": "USER_NOT_FOUND", "message": "Could not load your profile. Please try again." }, "requestId": "..." }
 ```
 
 **`409 Conflict`** → `ROLE_REQUEST_PENDING` — a pending request already exists
 ```json
 { "error": { "code": "ROLE_REQUEST_PENDING", "message": "You already have a pending role request." }, "requestId": "..." }
-```
-
-**`413 Payload Too Large`** → `FILE_TOO_LARGE` — qualification PDF exceeds 10 MB
-```json
-{ "error": { "code": "FILE_TOO_LARGE", "message": "Qualification file must be 10 MB or smaller." }, "requestId": "..." }
-```
-
-**`415 Unsupported Media Type`** → `UNSUPPORTED_MEDIA_TYPE` — file is not a PDF
-```json
-{ "error": { "code": "UNSUPPORTED_MEDIA_TYPE", "message": "Only PDF files are accepted for qualifications." }, "requestId": "..." }
 ```
 
 ---
@@ -967,7 +1095,7 @@ List own role requests (FR-MEM-004).
 
 List all requests in the admin review queue.
 
-**Authentication:** Bearer required | **Roles:** `admin`, `super_admin`
+**Authentication:** Bearer required | **Roles:** `admin`
 
 | Parameter | Description |
 |-----------|-------------|
@@ -1058,7 +1186,7 @@ Generate a **15-minute signed URL** for the applicant's qualification PDF. The f
 
 Grants the requested role — adds `student` to `roles[]` and updates Firebase custom claims atomically. **Does not create a course enrollment** — the student must separately apply for a course batch via `POST /enrollments`.
 
-**Authentication:** Bearer required | **Roles:** `admin`, `super_admin`
+**Authentication:** Bearer required | **Roles:** `admin`
 
 > Admin cannot approve their own requests (FR-ADM-008).
 
@@ -1133,7 +1261,7 @@ Grants the requested role — adds `student` to `roles[]` and updates Firebase c
 
 Rejects the role application (FR-ENR-005).
 
-**Authentication:** Bearer required | **Roles:** `admin`, `super_admin`
+**Authentication:** Bearer required | **Roles:** `admin`
 
 ```json
 { "note": "Batch is full. Please apply for the next intake." }
@@ -1194,17 +1322,17 @@ List courses. Member/Student/public see `published` only. Admin sees all states.
 
 | Parameter | Description |
 |-----------|-------------|
-| `search` | Partial match on course name |
-| `status` | `draft` \| `published` \| `archived` (admin only) |
+| `title` | Case-sensitive prefix search on course title |
+| `state` | `draft` \| `published` \| `archived` (admin only) |
 | `limit`, `cursor` | Pagination |
 
 **`200 OK`**
 ```json
 {
   "items": [{
-    "id": "course-abc", "name": "Bible Foundations",
+    "id": "course-abc", "title": "Bible Foundations",
     "description": "An introduction to the Bible.",
-    "coverImageUrl": null, "status": "published",
+    "coverImageUrl": null, "state": "published",
     "semesterCount": 3, "batchCount": 2,
     "createdAt": "2026-01-01T08:00:00.000Z",
     "updatedAt": "2026-05-01T09:00:00.000Z"
@@ -1224,17 +1352,17 @@ Get course with semester and subject tree. Student/public get `404` if draft or 
 **`200 OK`**
 ```json
 {
-  "id": "course-abc", "name": "Bible Foundations",
+  "id": "course-abc", "title": "Bible Foundations",
   "description": "An introduction to the Bible.",
-  "coverImageUrl": null, "status": "published",
+  "coverImageUrl": null, "state": "published",
   "semesterCount": 2, "batchCount": 2,
   "createdAt": "2026-01-01T08:00:00.000Z",
   "updatedAt": "2026-05-01T09:00:00.000Z",
   "semesters": [{
-    "id": "sem-001", "name": "Semester 1 — Foundations",
+    "id": "sem-001", "title": "Semester 1 — Foundations",
     "number": 1, "openDate": "2026-07-01", "endDate": "2026-09-30",
     "status": "active",
-    "subjects": [{ "id": "sub-001", "name": "The Gospel of John", "order": 1 }]
+    "subjects": [{ "id": "sub-001", "title": "The Gospel of John", "order": 1 }]
   }]
 }
 ```
@@ -1245,12 +1373,12 @@ Get course with semester and subject tree. Student/public get `404` if draft or 
 
 ### 6.3 `POST /courses`
 
-Create a course in `draft` state. `name` must be unique.
+Create a course in `draft` state. `title` must be unique.
 
-**Authentication:** Bearer required | **Roles:** `admin`, `super_admin`
+**Authentication:** Bearer required | **Roles:** `leader`, `g12`, `admin`, `super_admin`
 
 ```json
-{ "name": "Bible Foundations", "description": "...", "coverImageUrl": null }
+{ "title": "Bible Foundations", "description": "...", "coverImageUrl": null }
 ```
 
 **`201 Created`** — Course object. | **`409`** → `COURSE_TITLE_EXISTS`
@@ -1259,7 +1387,7 @@ Create a course in `draft` state. `name` must be unique.
 
 ### 6.4 `PATCH /courses/:id`
 
-**Authentication:** Bearer required | **Roles:** `admin`, `super_admin`
+**Authentication:** Bearer required | **Roles:** `leader`, `g12`, `admin`, `super_admin`
 
 **`200 OK`** — Updated Course object.
 
@@ -1269,7 +1397,7 @@ Create a course in `draft` state. `name` must be unique.
 
 Publish a `draft` course. Requires: ≥1 Batch, ≥1 Semester, every semester has ≥1 Subject.
 
-**Authentication:** Bearer required | **Roles:** `admin`, `super_admin`
+**Authentication:** Bearer required | **Roles:** `leader`, `g12`, `admin`, `super_admin`
 
 **`200 OK`** — Course with `status: "published"`.
 
@@ -1281,7 +1409,7 @@ Publish a `draft` course. Requires: ≥1 Batch, ≥1 Semester, every semester ha
 
 Return to `draft`. Enrolled students retain enrollments; content suspended until re-published.
 
-**Authentication:** Bearer required | **Roles:** `admin`, `super_admin`
+**Authentication:** Bearer required | **Roles:** `leader`, `g12`, `admin`, `super_admin`
 
 **`200 OK`** — Course with `status: "draft"`.
 
@@ -1291,7 +1419,7 @@ Return to `draft`. Enrolled students retain enrollments; content suspended until
 
 Archive a published course. Cannot archive if active enrollments exist (FR-CRS-008).
 
-**Authentication:** Bearer required | **Roles:** `admin`, `super_admin`
+**Authentication:** Bearer required | **Roles:** `leader`, `g12`, `admin`, `super_admin`
 
 **`200 OK`** — Course with `status: "archived"`.
 
@@ -1306,7 +1434,7 @@ Archive a published course. Cannot archive if active enrollments exist (FR-CRS-0
 
 Restore an `archived` course back to `draft`. The course must be re-published before it is visible to students again.
 
-**Authentication:** Bearer required | **Roles:** `admin`, `super_admin`
+**Authentication:** Bearer required | **Roles:** `leader`, `g12`, `admin`, `super_admin`
 
 **`200 OK`** — Course object with `state: "draft"` (full semester/subject tree intact)
 
@@ -1323,7 +1451,7 @@ Restore an `archived` course back to `draft`. The course must be re-published be
 
 Soft-delete. Sets `deletedAt`; recoverable 30 days.
 
-**Authentication:** Bearer required | **Roles:** `admin`, `super_admin`
+**Authentication:** Bearer required | **Roles:** `leader`, `g12`, `admin`, `super_admin`
 
 **`204 No Content`**
 
@@ -1369,7 +1497,7 @@ Batches are intake cohorts. They carry **no curriculum** — all batches of a co
 
 Create a batch (FR-CRS-002).
 
-**Authentication:** Bearer required | **Roles:** `admin`, `super_admin`
+**Authentication:** Bearer required | **Roles:** `leader`, `g12`, `admin`, `super_admin`
 
 ```json
 {
@@ -1407,7 +1535,7 @@ Create a batch (FR-CRS-002).
 
 Cannot change dates if approved enrollments exist.
 
-**Authentication:** Bearer required | **Roles:** `admin`, `super_admin`
+**Authentication:** Bearer required | **Roles:** `leader`, `g12`, `admin`, `super_admin`
 
 **`200 OK`** — Updated Batch object.
 
@@ -1417,7 +1545,7 @@ Cannot change dates if approved enrollments exist.
 
 Manually open a batch for enrollment before or instead of the `scheduledOpenAt` time. Batch must be in `draft` state.
 
-**Authentication:** Bearer required | **Roles:** `admin`, `super_admin`
+**Authentication:** Bearer required | **Roles:** `leader`, `g12`, `admin`, `super_admin`
 
 **`200 OK`** — Batch with `state: "open"`.
 
@@ -1432,7 +1560,7 @@ Manually open a batch for enrollment before or instead of the `scheduledOpenAt` 
 
 Manually close intake window before `intakeEnd` is reached. No new enrollment requests will be accepted after closing.
 
-**Authentication:** Bearer required | **Roles:** `admin`, `super_admin`
+**Authentication:** Bearer required | **Roles:** `leader`, `g12`, `admin`, `super_admin`
 
 **`200 OK`** — Batch with `state: "closed"`.
 
@@ -1460,7 +1588,7 @@ V1 carry-forward. V2 adds `openDate` and `endDate` (FR-CRS-003).
 {
   "items": [{
     "id": "sem-001", "courseId": "course-abc",
-    "name": "Semester 1 — Foundations", "number": 1,
+    "title": "Semester 1 — Foundations", "number": 1,
     "openDate": "2026-07-01", "endDate": "2026-09-30",
     "status": "active", "subjectCount": 4,
     "createdAt": "2026-05-01T08:00:00.000Z",
@@ -1476,15 +1604,15 @@ V1 carry-forward. V2 adds `openDate` and `endDate` (FR-CRS-003).
 
 V2 adds `openDate` and `endDate`. After `endDate` the semester is auto-disabled by the nightly sweep job (FR-CRS-004).
 
-**Authentication:** Bearer required | **Roles:** `admin`, `super_admin`
+**Authentication:** Bearer required | **Roles:** `leader`, `g12`, `admin`, `super_admin`
 
 ```json
-{ "name": "Semester 1 — Foundations", "number": 1, "openDate": "2026-07-01", "endDate": "2026-09-30" }
+{ "title": "Semester 1 — Foundations", "number": 1, "openDate": "2026-07-01", "endDate": "2026-09-30" }
 ```
 
 | Field | Required | Notes |
 |-------|:--------:|-------|
-| `name` | Yes | 1–200 chars |
+| `title` | Yes | 1–200 chars |
 | `number` | Yes | Sequence within course |
 | `openDate` | Yes | ISO date; when content becomes accessible |
 | `endDate` | No | ISO date; auto-disables after this date |
@@ -1495,7 +1623,7 @@ V2 adds `openDate` and `endDate`. After `endDate` the semester is auto-disabled 
 
 ### 8.3 `PATCH /semesters/:id`
 
-**Authentication:** Bearer required | **Roles:** `admin`, `super_admin`
+**Authentication:** Bearer required | **Roles:** `leader`, `g12`, `admin`, `super_admin`
 
 **`200 OK`** — Updated Semester object.
 
@@ -1505,7 +1633,7 @@ V2 adds `openDate` and `endDate`. After `endDate` the semester is auto-disabled 
 
 Soft-delete a semester and all its subjects.
 
-**Authentication:** Bearer required | **Roles:** `admin`, `super_admin`
+**Authentication:** Bearer required | **Roles:** `leader`, `g12`, `admin`, `super_admin`
 
 **`204 No Content`**
 
@@ -1527,7 +1655,7 @@ List active subjects. Student must have approved enrollment in the parent course
 ```json
 [{
   "id": "sub-001", "semesterId": "sem-001", "courseId": "course-abc",
-  "name": "The Gospel of John", "description": "Deep study of John's Gospel.",
+  "title": "The Gospel of John", "description": "Deep study of John's Gospel.",
   "order": 1,
   "imageUrls": ["https://storage.googleapis.com/.../cover.jpg"],
   "attachments": [{ "id": "att-001", "filename": "study-notes.pdf", "mimeType": "application/pdf", "sizeBytes": 204800 }],
@@ -1543,10 +1671,10 @@ List active subjects. Student must have approved enrollment in the parent course
 
 V2 adds `imageUrls[]` for PNG/JPG cover images (FR-CRS-005).
 
-**Authentication:** Bearer required | **Roles:** `admin`, `super_admin`
+**Authentication:** Bearer required | **Roles:** `leader`, `g12`, `admin`, `super_admin`
 
 ```json
-{ "name": "The Gospel of John", "description": "...", "imageUrls": [], "attachments": [], "lessons": [] }
+{ "title": "The Gospel of John", "description": "...", "imageUrls": [], "attachments": [], "lessons": [] }
 ```
 
 **`201 Created`** — Subject object.
@@ -1555,7 +1683,7 @@ V2 adds `imageUrls[]` for PNG/JPG cover images (FR-CRS-005).
 
 ### 9.3 `PATCH /subjects/:id`
 
-**Authentication:** Bearer required | **Roles:** `admin`, `super_admin`
+**Authentication:** Bearer required | **Roles:** `leader`, `g12`, `admin`, `super_admin`
 
 **`200 OK`** — Updated Subject object.
 
@@ -1563,7 +1691,7 @@ V2 adds `imageUrls[]` for PNG/JPG cover images (FR-CRS-005).
 
 ### 9.4 `DELETE /subjects/:id`
 
-**Authentication:** Bearer required | **Roles:** `admin`, `super_admin`
+**Authentication:** Bearer required | **Roles:** `leader`, `g12`, `admin`, `super_admin`
 
 **`204 No Content`**
 
@@ -1593,7 +1721,7 @@ Plain array of Lesson objects, ordered by `order` ascending (FR-LRN-001).
 
 ### 9.6 `POST /subjects/:id/lessons`
 
-**Authentication:** Bearer required | **Roles:** `admin`, `super_admin`
+**Authentication:** Bearer required | **Roles:** `leader`, `g12`, `admin`, `super_admin`
 
 ```json
 {
@@ -1617,7 +1745,7 @@ Plain array of Lesson objects, ordered by `order` ascending (FR-LRN-001).
 
 ### 9.7 `PATCH /lessons/:id`
 
-**Authentication:** Bearer required | **Roles:** `admin`, `super_admin`
+**Authentication:** Bearer required | **Roles:** `leader`, `g12`, `admin`, `super_admin`
 
 **`200 OK`** — Updated Lesson object.
 
@@ -1625,7 +1753,7 @@ Plain array of Lesson objects, ordered by `order` ascending (FR-LRN-001).
 
 ### 9.8 `DELETE /lessons/:id`
 
-**Authentication:** Bearer required | **Roles:** `admin`, `super_admin`
+**Authentication:** Bearer required | **Roles:** `leader`, `g12`, `admin`, `super_admin`
 
 **`204 No Content`**
 
@@ -1639,7 +1767,7 @@ Plain array of Lesson objects, ordered by `order` ascending (FR-LRN-001).
 
 Upload PDF or DOCX. Max **25 MB** (FR-CRS-010).
 
-**Authentication:** Bearer required | **Roles:** `admin`, `super_admin`
+**Authentication:** Bearer required | **Roles:** `admin`
 **Content-Type:** `multipart/form-data`
 
 | Field | Allowed MIME | Max |
@@ -1665,7 +1793,7 @@ Upload PDF or DOCX. Max **25 MB** (FR-CRS-010).
 
 Upload PNG or JPG cover image (FR-CRS-005). Max **10 MB**.
 
-**Authentication:** Bearer required | **Roles:** `admin`, `super_admin`
+**Authentication:** Bearer required | **Roles:** `admin`
 **Content-Type:** `multipart/form-data`
 
 | Field | Allowed MIME | Max |
@@ -1703,7 +1831,7 @@ Short-lived signed URL. Expires in **15 minutes** (FR-LRN-002). Student must hav
 
 Remove attachment or image from Cloud Storage and subject record.
 
-**Authentication:** Bearer required | **Roles:** `admin`, `super_admin`
+**Authentication:** Bearer required | **Roles:** `leader`, `g12`, `admin`, `super_admin`
 
 **`204 No Content`**
 
@@ -1768,7 +1896,7 @@ List own enrollments (SRS §7.3.5 path).
 
 Admin view.
 
-**Authentication:** Bearer required | **Roles:** `admin`, `super_admin`
+**Authentication:** Bearer required | **Roles:** `leader`, `g12`, `admin`, `super_admin`
 
 | Parameter | Description |
 |-----------|-------------|
@@ -1787,7 +1915,7 @@ Admin view.
 
 Approve an enrollment. Sets `state: "approved"` on the enrollment and dispatches a **welcome email** to the student (FR-ENR-005).
 
-**Authentication:** Bearer required | **Roles:** `admin`, `super_admin`  
+**Authentication:** Bearer required | **Roles:** `leader`, `g12`, `admin`, `super_admin`  
 **Content-Type:** `application/json`
 
 #### Request Body
@@ -1852,7 +1980,7 @@ Approve an enrollment. Sets `state: "approved"` on the enrollment and dispatches
 
 Reject an enrollment application and send a **rejection notification email** to the student.
 
-**Authentication:** Bearer required | **Roles:** `admin`, `super_admin`  
+**Authentication:** Bearer required | **Roles:** `leader`, `g12`, `admin`, `super_admin`  
 **Content-Type:** `application/json`
 
 #### Request Body
@@ -1922,7 +2050,7 @@ Mark subject complete. **Idempotent** — already-completed returns existing rec
 **Authentication:** Bearer required | **Roles:** `student`, `leader`, `g12`
 
 ```json
-{ "courseId": "course-abc", "semesterId": "sem-001", "batchId": "batch-xyz" }
+{ "courseId": "course-abc", "semesterId": "sem-001" }
 ```
 
 **`200 OK`**
@@ -1930,7 +2058,7 @@ Mark subject complete. **Idempotent** — already-completed returns existing rec
 {
   "id": "Xf3aBC..._sub-001", "userUid": "Xf3aBC...",
   "subjectId": "sub-001", "courseId": "course-abc",
-  "semesterId": "sem-001", "batchId": "batch-xyz",
+  "semesterId": "sem-001",
   "status": "completed",
   "completedAt": "2026-05-07T14:00:00.000Z",
   "lastAccessedAt": "2026-05-07T14:00:00.000Z"
@@ -1948,7 +2076,7 @@ Update `lastAccessedAt`. Transitions `not_started` → `in_progress` on first ac
 **Authentication:** Bearer required | **Roles:** `student`, `leader`, `g12`
 
 ```json
-{ "courseId": "course-abc", "semesterId": "sem-001", "batchId": "batch-xyz" }
+{ "courseId": "course-abc", "semesterId": "sem-001" }
 ```
 
 **`200 OK`** — SubjectProgress object.
@@ -2002,10 +2130,10 @@ Admin view. Supports `?batchId` to scope to one intake.
 ### 13.1 `GET /cells`
 
 List cell groups. Scope auto-applied by role:
-- **Member/Student** → sees all `active` cells (so they can find a cell to apply to join)
-- **Leader** → sees cells they lead
-- **G12** → sees all cells in their network
-- **Admin/Super Admin** → sees all cells
+- **Member/Student** → sees all `active` cells only
+- **Leader** → sees only cells they lead (`active` by default)
+- **G12** → sees all cells in their network (`active` by default, can pass `?state=archived`)
+- **Admin/Super Admin** → sees **ALL cells across ALL states** (active + archived) by default; can filter with `?state=active|archived` ★ Updated
 
 **Authentication:** Bearer required | **Roles:** Any authenticated
 
@@ -2014,7 +2142,7 @@ List cell groups. Scope auto-applied by role:
 | `search` | Partial match on cell name |
 | `type` | `g12` \| `care` \| `children` \| `outreach` |
 | `area` | Exact match on area |
-| `state` | `active` \| `archived` (default: `active`) |
+| `state` | `active` \| `archived` — default varies by role: `admin`/`super_admin` see **all states** when omitted; all others default to `active` ★ Updated |
 | `leaderUid` | Filter by leader (admin/g12 only) |
 | `limit`, `cursor` | Pagination |
 
@@ -2102,7 +2230,92 @@ Fetch cell with full member roster (FR-CG-005).
 
 ---
 
-### 13.7 `POST /cells/:id/members`
+### 13.7 `DELETE /cells/:id` ★ NEW
+
+Permanently delete a cell group. Only the cell's own leader, G12 leader, or an admin can delete it.
+
+**Authentication:** Bearer required | **Roles:** `leader`, `g12`, `admin`, `super_admin`  
+
+**Ownership rule — enforced in `DeleteCellGroupUseCase`:**
+
+| Caller | Can delete? |
+|--------|------------|
+| Cell's `leaderUid` (owner) | ✅ Yes |
+| Cell's `g12LeaderUid` | ✅ Yes |
+| `admin` / `super_admin` | ✅ Yes |
+| Different leader (not the owner) | ❌ `403 FORBIDDEN` |
+| `member` / `student` | ❌ `403 FORBIDDEN` |
+
+**`204 No Content`** — Cell permanently deleted.
+
+**`403 Forbidden`** → `FORBIDDEN` — Not the cell owner or admin
+
+**`404 Not Found`** → `CELL_NOT_FOUND` — Cell does not exist
+
+---
+
+### 13.7b `POST /cells/:id/transfer-ownership` ★ NEW
+
+Transfer cell group ownership to a new leader and/or G12 leader.
+
+**Who can transfer:**
+
+| Caller | Access |
+|--------|--------|
+| `admin` / `super_admin` | ✅ Full override — can change any combination of fields |
+| `leader` / `g12` / `member` / `student` | ❌ `403 FORBIDDEN` |
+
+On success the new owner(s) receive:
+- An **in-app notification**: *"Cell Leadership Assigned"* / *"G12 Leadership Assigned"*
+- An **email** with the assignment details
+
+**Authentication:** Bearer required | **Roles:** `admin`, `super_admin`
+**Content-Type:** `application/json`
+
+#### Request Body
+
+```json
+{
+  "leaderUid":    "new-leader-uid",
+  "g12LeaderUid": "new-g12-uid"
+}
+```
+
+| Field | Type | Required | Notes |
+|-------|------|:--------:|-------|
+| `leaderUid` | string | Conditional | New cell leader UID. At least one of `leaderUid` / `g12LeaderUid` must be provided. |
+| `g12LeaderUid` | string | Conditional | New G12 leader UID. |
+
+> At least one field must differ from the current owners — submitting the same UIDs returns `422 NO_CHANGE`.
+
+> Only `admin` and `super_admin` can initiate ownership transfer. No auto-demotion occurs — the previous owner retains their role unless separately demoted via `POST /users/:uid/demote`.
+
+#### Notifications sent on success
+
+| Recipient | Channel | Message |
+|-----------|---------|---------|
+| New leader (if changed) | In-app + Email | *"You have been assigned as Cell Leader of [Cell Name]"* |
+| New G12 leader (if changed, different person) | In-app + Email | *"You have been assigned as G12 Leader of [Cell Name]"* |
+
+#### Responses
+
+**`200 OK`** — Updated `CellGroup` object with new `leaderUid` and/or `g12LeaderUid`.
+
+**`400 Bad Request`** → `VALIDATION_ERROR` — No fields provided
+
+**`403 Forbidden`** → `FORBIDDEN` — Caller is not admin or super_admin
+
+**`404 Not Found`** → `CELL_NOT_FOUND`
+
+**`409 Conflict`** → `INVALID_STATE` — Cell is archived; cannot transfer ownership of archived cell
+
+**`422 Unprocessable Entity`** → `NO_CHANGE`
+```json
+{ "error": { "code": "NO_CHANGE", "message": "The provided UIDs are the same as the current owners." }, "requestId": "..." }
+```
+
+---
+### 13.8 `POST /cells/:id/members`
 
 Directly add members to a cell (admin/leader/g12 path — no join request needed). Used when a leader physically recruits a member and adds them on their behalf. Atomically increments `memberCount`.
 
@@ -2116,7 +2329,7 @@ Directly add members to a cell (admin/leader/g12 path — no join request needed
 
 ---
 
-### 13.8 `DELETE /cells/:id/members/:uid`
+### 13.9 `DELETE /cells/:id/members/:uid`
 
 Remove a member from the cell. Atomically decrements `memberCount`.
 
@@ -2126,7 +2339,7 @@ Remove a member from the cell. Atomically decrements `memberCount`.
 
 ---
 
-### 13.9 `POST /cells/:id/join-requests`
+### 13.10 `POST /cells/:id/join-requests`
 
 Member applies to join a cell group. Admin or Super Admin must approve before the member is added to the cell.
 
@@ -2157,7 +2370,7 @@ Member applies to join a cell group. Admin or Super Admin must approve before th
 
 ---
 
-### 13.10 `GET /cells/:id/join-requests`
+### 13.11 `GET /cells/:id/join-requests`
 
 List all pending join requests for a cell.
 
@@ -2188,7 +2401,7 @@ List all pending join requests for a cell.
 
 ---
 
-### 13.11 `POST /cells/:id/join-requests/:rid/approve`
+### 13.12 `POST /cells/:id/join-requests/:rid/approve`
 
 Approve a member's request to join the cell. Adds the member to the cell and increments `memberCount`.
 
@@ -2212,7 +2425,7 @@ Approve a member's request to join the cell. Adds the member to the cell and inc
 
 ---
 
-### 13.12 `POST /cells/:id/join-requests/:rid/reject`
+### 13.13 `POST /cells/:id/join-requests/:rid/reject`
 
 Reject a member's request to join the cell. The member is not added.
 
@@ -2383,6 +2596,105 @@ Void a report (FR-CR-014). Preserved for audit. File corrected report separately
 
 ---
 
+### 14.5 `PATCH /cells/:id/reports/:rid` ★ NEW
+
+Edit a cell report. Only allowed within **24 hours** of the original filing time. After that the report becomes read-only.
+
+**Authentication:** Bearer required | **Roles:** `leader`, `g12`, `super_admin`
+
+**Who can edit:**
+
+| Caller | Can edit? |
+|--------|----------|
+| The user who filed the report (`filledByUid`) | ✅ Yes (within 24h) |
+| `super_admin` | ✅ Yes (within 24h) |
+| Different leader / G12 (not the filer) | ❌ `403 FORBIDDEN` |
+| `admin` | ❌ `403 FORBIDDEN` (admin does not file reports) |
+
+**Immutable fields** — never changed by this endpoint:
+`clientReqId`, `filledByUid`, `cellId`, `id`, `createdAt`
+
+#### Request Body (all fields optional — PATCH semantics)
+
+```json
+{
+  "location":         "Church Hall",
+  "satisfactionRate": 5,
+  "additionalInfo":   "Great attendance today.",
+  "attendance": [
+    { "name": "Kasun Perera", "status": "present", "isNew": false }
+  ]
+}
+```
+
+> At least one field must be provided. Sending an empty body returns `400 VALIDATION_ERROR`.
+
+#### Responses
+
+**`200 OK`** — Updated report object.
+
+**`400 Bad Request`** → `VALIDATION_ERROR` — Empty body or field validation failure
+
+**`403 Forbidden`** → `FORBIDDEN` — Not the original filer or super_admin
+
+**`404 Not Found`** → `CELL_NOT_FOUND` / `REPORT_NOT_FOUND`
+
+**`409 Conflict`** → `REPORT_ALREADY_VOIDED` — Cannot edit a voided report
+
+**`422 Unprocessable Entity`** → `EDIT_WINDOW_EXPIRED`
+```json
+{ "error": { "code": "EDIT_WINDOW_EXPIRED", "message": "Cell reports can only be edited within 24 hours of filing." }, "requestId": "..." }
+```
+
+---
+### 14.6 `GET /cells/network/reports` ★ NEW
+
+Returns reports from all cells in the caller's network. G12 leaders see reports from every cell where they are the `g12LeaderUid`. Cell leaders see their own cell's reports. Admin sees all cells.
+
+**Authentication:** Bearer required | **Roles:** `leader`, `g12`, `admin`, `super_admin`
+
+#### Query Parameters
+
+| Parameter | Description |
+|-----------|-------------|
+| `limit` | Reports per cell (default 20, max 100) |
+| `from` | Filter by date (`YYYY-MM-DD`) |
+| `to` | Filter by date (`YYYY-MM-DD`) |
+| `voided` | `true` \| `false` (default: non-voided) |
+
+#### Scope by role
+
+| Caller | Sees |
+|--------|------|
+| `g12` | All reports from cells where `g12LeaderUid === callerUid` |
+| `leader` | Reports from their own cell only (`leaderUid === callerUid`) |
+| `admin` / `super_admin` | Reports from all active cells |
+
+#### Response
+
+**`200 OK`**
+```json
+{
+  "items": [
+    {
+      "id":         "report-001",
+      "cellId":     "cell-001",
+      "cellName":   "Rathmalana West G12",
+      "date":       "2026-05-22",
+      "didMeet":    true,
+      "filledByUid": "leader-uid-1",
+      ...
+    }
+  ],
+  "totalCells": 8
+}
+```
+
+> Reports are sorted by `date` descending (newest first). The `cellName` field is added automatically for each report item. `totalCells` = number of cells in the caller's network.
+
+**`403 Forbidden`** → `FORBIDDEN` — member or student (not leader/G12/admin)
+
+---
 ## 15. Analytics Endpoints — NEW V2
 
 All endpoints read from **pre-aggregated snapshots** — never raw reports. <2 s latency (NFR-PER-003). Scope auto-resolved from caller's role.
@@ -2503,15 +2815,13 @@ Same query parameters as the corresponding chart endpoint.
 ```json
 {
   "items": [{
-    "id": "notif-001", "templateKey": "role.granted",
+    "id": "notif-001", "type": "role.granted",
     "title": "Role Granted",
     "body": "You are now a Student in the TCCR system.",
-    "localeRendered": "si",
-    "channels": ["in_app", "email", "push"],
-    "readAt": null,
+    "read": false,
     "createdAt": "2026-05-15T09:05:00.000Z"
   }],
-  "nextCursor": null, "total": 5, "unreadCount": 3
+  "nextCursor": null, "total": 5
 }
 ```
 
@@ -2521,7 +2831,7 @@ Same query parameters as the corresponding chart endpoint.
 
 **Authentication:** Bearer required | **Roles:** Any (own notifications only)
 
-**`200 OK`** — Notification with `readAt` set.
+**`200 OK`** — `{ "id": "<notificationId>", "read": true }`
 
 ---
 
@@ -2744,10 +3054,10 @@ Nested inside `RoleRequest.applicantProfile`. All fields are provided by the mem
 | Field | Type | Notes |
 |-------|------|-------|
 | `id` | string | Auto UUID |
-| `name` | string | Unique (incl. soft-deleted) |
+| `title` | string | Unique (incl. soft-deleted) |
 | `description` | string | Max 500 chars |
 | `coverImageUrl` | string or null | |
-| `status` | string | `draft` \| `published` \| `archived` |
+| `state` | string | `draft` \| `published` \| `archived` |
 | `semesterCount` | number | |
 | `batchCount` | number | **NEW V2** |
 | `createdAt` | string | ISO 8601 |
@@ -2779,7 +3089,7 @@ Nested inside `RoleRequest.applicantProfile`. All fields are provided by the mem
 |-------|------|-----------|
 | `id` | string | |
 | `courseId` | string | |
-| `name` | string | |
+| `title` | string | |
 | `number` | number | Sequence within course |
 | `openDate` | string | **NEW** — ISO date; content accessible from this date |
 | `endDate` | string or null | **NEW** — auto-disables after this date |
@@ -2798,7 +3108,7 @@ Nested inside `RoleRequest.applicantProfile`. All fields are provided by the mem
 | `id` | string | |
 | `semesterId` | string | |
 | `courseId` | string | |
-| `name` | string | |
+| `title` | string | |
 | `description` | string | |
 | `order` | number | |
 | `imageUrls` | string[] | **NEW** — PNG/JPG cover images (FR-CRS-005) |
@@ -2936,7 +3246,7 @@ Nested inside `RoleRequest.applicantProfile`. All fields are provided by the mem
 | `absenteeNotes` | string or null | FR-CR-011 |
 | `additionalVisitors` | number | FR-CR-012 |
 | `childrenCount` | number | FR-CR-012 |
-| `satisfactionRate` | number | 1–5 (FR-CR-013) |
+| `satisfactionRate` | number | 1–6 (FR-CR-013) |
 | `additionalInfo` | string or null | FR-CR-013 |
 | `voided` | boolean | Immutable once `true` (FR-CR-014) |
 | `createdAt` | string | ISO 8601 |
@@ -2996,6 +3306,7 @@ Nested inside `RoleRequest.applicantProfile`. All fields are provided by the mem
 |------|:------:|-------------|
 | `VALIDATION_ERROR` | 400 | Zod schema validation failed |
 | `INVALID_OTP` | 400 | OTP invalid or not found |
+| `EMAIL_ALREADY_VERIFIED` | 400 | `POST /auth/resend-verification` called for an already-verified address ★ NEW |
 | `OTP_EXPIRED` | 400 | OTP has passed its 15-minute expiry |
 | `OTP_MAX_ATTEMPTS` | 400 | Too many incorrect OTP attempts |
 | `FILE_TOO_LARGE` | 413 | File exceeds the size limit for that endpoint |
@@ -3011,6 +3322,7 @@ Nested inside `RoleRequest.applicantProfile`. All fields are provided by the mem
 | `LESSON_NOT_FOUND` | 404 | Lesson not found |
 | `ATTACHMENT_NOT_FOUND` | 404 | Attachment not found |
 | `ENROLLMENT_NOT_FOUND` | 404 | Enrollment not found |
+| `REPORT_NOT_FOUND` | 404 | Cell report not found (returned by `PATCH /cells/:id/reports/:rid`) ★ NEW |
 | `EMAIL_EXISTS` | 409 | Email already registered |
 | `COURSE_TITLE_EXISTS` | 409 | Course name already in use |
 | `ENROLLMENT_PENDING` | 409 | Pending enrollment already exists |
@@ -3019,6 +3331,14 @@ Nested inside `RoleRequest.applicantProfile`. All fields are provided by the mem
 | `INVALID_ROLE` | 409 | User role does not permit this operation |
 | `UNSUPPORTED_MEDIA_TYPE` | 415 | File MIME type not allowed |
 | `COOLOFF_ACTIVE` | 422 | Must wait before re-enrolling |
+| `EMAIL_DOMAIN_UNREACHABLE` | 422 | Email domain has no MX DNS records — domain cannot receive email ★ NEW |
+| `DISPOSABLE_EMAIL` | 422 | Disposable/throwaway email address not accepted at registration ★ NEW |
+| `EDIT_WINDOW_EXPIRED` | 422 | Cell report can only be edited within 24 hours of filing ★ NEW |
+| `NO_CHANGE` | 422 | Transfer ownership called with same UIDs as current owners ★ NEW |
+| `EMAIL_DOMAIN_UNREACHABLE` | 422 | Email domain has no MX DNS records — cannot receive email (register) ★ NEW |
+| `DISPOSABLE_EMAIL` | 422 | Disposable/throwaway email address not accepted (register) ★ NEW |
+| `EDIT_WINDOW_EXPIRED` | 422 | Cell report can only be edited within 24 hours of filing ★ NEW |
+| `NO_CHANGE` | 422 | Transfer ownership called with same UIDs as current owners ★ NEW |
 | `NO_SEMESTERS` | 422 | Cannot publish: course has no semesters |
 | `EMPTY_SEMESTER` | 422 | Cannot publish: semester has no subjects |
 | `RATE_LIMIT_EXCEEDED` | 429 | Too many requests |
@@ -3096,11 +3416,12 @@ Events published to the `outbox` Firestore collection and dispatched by the Outb
 | `role.granted` | Enrollment Service | ✅ Notification (`RoleGrantedHandler` — in-app notification + approval email with role label, optional admin note, next-steps, login link), ✅ Audit | Admin approves role request |
 | `role.rejected` | Enrollment Service | ⚠️ Not wired — silently skipped | Admin rejects role request |
 | `cell.created` | Cell Service | ✅ Audit | Cell group created |
-| `cell.join_requested` | Cell Service | ✅ Audit | Member applies to join a cell |
-| `cell.join_approved` | Cell Service | ✅ Audit | Admin approves member into cell |
-| `cell.join_rejected` | Cell Service | ✅ Audit | Admin rejects cell join request |
-| `cell_report.filed` | Cell Service | ✅ Audit | Leader files cell report |
+| `cell.join_requested` | Cell Service | ✅ Notification (leader + G12 leader in-app: "New Cell Join Request"), ✅ Audit | Member applies to join a cell — notifies owning leader and G12 leader ★ Updated |
+| `cell.join_approved` | Cell Service | ✅ Notification (member in-app: "Cell Join Request Approved"), ✅ Audit | Admin approves member into cell ★ Updated |
+| `cell.join_rejected` | Cell Service | ✅ Notification (member in-app: "Cell Join Request Not Approved"), ✅ Audit | Admin rejects cell join request ★ Updated |
+| `cell_report.filed` | Cell Service | ✅ Notification (G12 leader in-app: "Cell Report Filed" — skipped if G12=filer), ✅ Audit | Leader files cell report ★ Updated |
 | `cell_report.voided` | Cell Service | ✅ Audit | Cell report voided |
+| `cell.ownership_transferred` | Cell Service | ✅ Auto-demotion of previous owner when self-initiated (`POST /internal/users/remove-role`), ✅ Notification (new leader + G12 in-app + email), ✅ Audit | Cell ownership transferred; previous owner auto-demoted when they initiated it ★ Updated |
 
 **Delivery guarantees:**
 - At-least-once; Outbox Worker retries up to **5 times** with exponential backoff
@@ -3110,4 +3431,4 @@ Events published to the `outbox` Firestore collection and dispatched by the Outb
 ---
 
 *© 2026 Future CX Lanka (Pvt) Ltd — Confidential*
-*Document version: 2.8.0 | Paired with TCCR SRS v2.0 dated 22 May 2026 and TCCR Backend Blueprint v2.0.0*
+*Document version: 2.19.0 | Paired with TCCR SRS v2.0 dated 22 May 2026 and TCCR Backend Blueprint v2.0.0*

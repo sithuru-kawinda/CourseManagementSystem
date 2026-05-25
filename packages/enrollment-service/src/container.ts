@@ -43,7 +43,7 @@ const approveEnroll = new ApproveEnrollmentUseCase(enrollRepo, outbox, userClien
 const rejectEnroll  = new RejectEnrollmentUseCase(enrollRepo, outbox, userClient, courseClient);
 const withdraw      = new WithdrawEnrollmentUseCase(enrollRepo, outbox);
 
-const createRoleReq        = new CreateRoleRequestUseCase(roleRequestRepo, outbox, storageRepo);
+const createRoleReq        = new CreateRoleRequestUseCase(roleRequestRepo, outbox, userClient);
 const approveRoleReq       = new ApproveRoleRequestUseCase(roleRequestRepo, userClient, outbox);
 const rejectRoleReq        = new RejectRoleRequestUseCase(roleRequestRepo, outbox);
 const listRoleReqs         = new GetRoleRequestsUseCase(roleRequestRepo);

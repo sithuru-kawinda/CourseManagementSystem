@@ -6,13 +6,16 @@ import { container }               from '../../container';
 export const authRouter = Router();
 
 // ── Standard auth (public) ────────────────────────────────────────────────────
-authRouter.post('/auth/register',              container.authController.register);
-authRouter.post('/auth/password-reset',        container.authController.passwordReset);
-authRouter.post('/auth/password-reset/verify', container.authController.verifyOtpAndReset);
-authRouter.post('/auth/track-failure',         container.authController.trackFailure);
+authRouter.post('/auth/register',                   container.authController.register);
+authRouter.post('/auth/resend-verification',        container.authController.resendVerification);
+authRouter.post('/auth/verify-email',               container.authController.verifyEmailOtp);
+authRouter.post('/auth/password-reset',             container.authController.passwordReset);
+authRouter.post('/auth/password-reset/verify',      container.authController.verifyOtpAndReset);
+authRouter.post('/auth/track-failure',              container.authController.trackFailure);
 
 // ── Authenticated ─────────────────────────────────────────────────────────────
-authRouter.post('/auth/logout', authenticate(), authorize('member', 'student', 'leader', 'g12', 'admin', 'super_admin'), container.authController.logout);
+// allowUnverified: true — users must be able to log out even before verifying their email
+authRouter.post('/auth/logout', authenticate({ allowUnverified: true }), authorize('member', 'student', 'leader', 'g12', 'admin', 'super_admin'), container.authController.logout);
 
 // ── Federated OAuth — mobile SDK flow (V2) ────────────────────────────────────
 // Client sends an id_token obtained from the Apple/Google SDK directly.
@@ -30,7 +33,8 @@ authRouter.post('/auth/apple/callback', container.authController.appleCallback);
 authRouter.post('/auth/apple/refresh', authenticate(), authorize('member', 'student', 'leader', 'g12', 'admin', 'super_admin'), container.authController.appleRefresh);
 
 // Account deletion: revoke Apple tokens (required by Apple guidelines).
-authRouter.post('/auth/apple/revoke', authenticate(), authorize('member', 'student', 'leader', 'g12', 'admin', 'super_admin'), container.authController.appleRevoke);
+// allowUnverified: true — account deletion must work regardless of email-verification state
+authRouter.post('/auth/apple/revoke', authenticate({ allowUnverified: true }), authorize('member', 'student', 'leader', 'g12', 'admin', 'super_admin'), container.authController.appleRevoke);
 
 // ── Internal ──────────────────────────────────────────────────────────────────
 // Used by user-service to verify federated tokens for POST /me/providers/link.

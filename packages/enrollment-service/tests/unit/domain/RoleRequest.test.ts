@@ -10,16 +10,18 @@ const baseProps: RoleRequestProps = {
   createdAt:     '2026-01-01T00:00:00.000Z',
   decidedAt:     null,
   applicantProfile: {
-    firstName:   'John',
-    lastName:    'Doe',
-    phoneNumber: '+94771234567',
-    email:       'john@example.com',
-    dateOfBirth: '2000-06-15',
-    gender:      'male',
-    address:     '123 Main St, Colombo',
+    firstName:          'John',
+    lastName:           'Doe',
+    phoneNumber:        '+94771234567',
+    email:              'john@example.com',
+    dateOfBirth:        '2000-06-15',
+    gender:             'male',
+    address:            '123 Main St, Colombo',
+    qualificationTitle: 'BSc Computer Science',
+    qualificationUrl:   null,
   },
   qualificationTitle:       'BSc Computer Science',
-  qualificationStoragePath: 'qualifications/uid-1/req-1.pdf',
+  qualificationStoragePath: null,
 };
 
 const make = (status: 'pending' | 'approved' | 'rejected' = 'pending'): RoleRequest =>
@@ -41,7 +43,7 @@ describe('RoleRequest entity', () => {
     it('stores qualification title and storage path', () => {
       const r = make();
       expect(r.qualificationTitle).toBe('BSc Computer Science');
-      expect(r.qualificationStoragePath).toBe('qualifications/uid-1/req-1.pdf');
+      expect(r.qualificationStoragePath).toBeNull();
     });
   });
 

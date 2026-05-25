@@ -21,9 +21,10 @@ const makeRequest = (id: string, status: 'pending' | 'approved' | 'rejected' = '
       firstName: 'John', lastName: 'Doe', phoneNumber: '+94771234567',
       email: 'john@example.com', dateOfBirth: '2000-06-15',
       gender: 'male', address: '123 Main St',
+      qualificationTitle: null, qualificationUrl: null,
     },
     qualificationTitle:       'BSc Computer Science',
-    qualificationStoragePath: `qualifications/uid-${id}/${id}.pdf`,
+    qualificationStoragePath: null,
   });
 
 describe('GetRoleRequestsUseCase', () => {

@@ -98,9 +98,10 @@ async function seed() {
     await deleteIfExists(u.email);
 
     const record = await auth.createUser({
-      email:       u.email,
-      password:    u.password,
-      displayName: `${u.firstName} ${u.lastName}`,
+      email:         u.email,
+      password:      u.password,
+      displayName:   `${u.firstName} ${u.lastName}`,
+      emailVerified: true,   // seed accounts are pre-verified — skip the email-verification gate
     });
 
     // V2: all users get 'member' as their base role in addition to their primary role

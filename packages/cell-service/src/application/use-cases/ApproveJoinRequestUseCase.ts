@@ -38,7 +38,13 @@ export class ApproveJoinRequestUseCase {
 
     await this.outbox.publishWithBatch({
       type:    'cell.join_approved',
-      payload: { cellId, memberUid: joinReq.requesterUid, joinRequestId: joinReq.id, decidedByUid },
+      payload: {
+        cellId,
+        cellName:  cell.name,
+        memberUid: joinReq.requesterUid,
+        joinRequestId: joinReq.id,
+        decidedByUid,
+      },
       requestId,
     });
 

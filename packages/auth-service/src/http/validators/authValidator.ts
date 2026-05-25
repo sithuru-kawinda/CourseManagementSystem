@@ -29,6 +29,15 @@ export const trackFailureSchema = z.object({
   email: z.string().email(),
 });
 
+export const resendVerificationSchema = z.object({
+  email: z.string().email(),
+});
+
+export const verifyEmailOtpSchema = z.object({
+  email: z.string().email(),
+  otp:   z.string().length(6).regex(/^\d{6}$/, 'OTP must be a 6-digit number.'),
+});
+
 export const federatedSignInSchema = z.object({
   idToken:           z.string().min(1),
   preferredLanguage: z.enum(['en', 'si', 'ta']).default('en'),

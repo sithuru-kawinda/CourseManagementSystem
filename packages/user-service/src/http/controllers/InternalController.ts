@@ -3,18 +3,20 @@ import { fromZodError }                    from '@shared/errors';
 import { sendSuccess }                     from '@shared/response';
 import { CheckEmailExistsUseCase }         from '../../application/use-cases/CheckEmailExistsUseCase';
 import { AddRoleUseCase }                  from '../../application/use-cases/AddRoleUseCase';
+import { RemoveRoleUseCase }               from '../../application/use-cases/RemoveRoleUseCase';
 import { ApproveUserUseCase }              from '../../application/use-cases/ApproveUserUseCase';
 import { GetUsersUseCase }                 from '../../application/use-cases/GetUsersUseCase';
 import { GetUserByIdUseCase }              from '../../application/use-cases/GetUserByIdUseCase';
-import { checkEmailSchema, approveUserSchema, addRoleSchema } from '../validators/internalValidator';
+import { checkEmailSchema, approveUserSchema, addRoleSchema, removeRoleSchema } from '../validators/internalValidator';
 
 export class InternalController {
   constructor(
-    private readonly checkEmail:    CheckEmailExistsUseCase,
-    private readonly approveUser:   ApproveUserUseCase,
-    private readonly getUsers:      GetUsersUseCase,
-    private readonly addRoleUseCase: AddRoleUseCase,
-    private readonly getUserById:   GetUserByIdUseCase,
+    private readonly checkEmail:       CheckEmailExistsUseCase,
+    private readonly approveUser:      ApproveUserUseCase,
+    private readonly getUsers:         GetUsersUseCase,
+    private readonly addRoleUseCase:   AddRoleUseCase,
+    private readonly removeRoleUseCase: RemoveRoleUseCase,
+    private readonly getUserById:      GetUserByIdUseCase,
   ) {}
 
   exists = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
@@ -50,6 +52,18 @@ export class InternalController {
       if (!parsed.success) return next(fromZodError(parsed.error));
 
       await this.addRoleUseCase.execute(parsed.data.uid, parsed.data.role);
+      res.status(204).send();
+    } catch (err) { next(err); }
+  };
+
+  // POST /internal/users/remove-role — called by outbox-worker after cell ownership transfer
+  // Removes a role from a user (idempotent — no error if user doesn't have the role)
+  removeRole = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const parsed = removeRoleSchema.safeParse(req.body);
+      if (!parsed.success) return next(fromZodError(parsed.error));
+
+      await this.removeRoleUseCase.execute(parsed.data.uid, parsed.data.role);
       res.status(204).send();
     } catch (err) { next(err); }
   };

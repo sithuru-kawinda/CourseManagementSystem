@@ -26,12 +26,10 @@ export class RoleRequestController {
     private readonly getByIdUseCase:       GetRoleRequestByIdUseCase,
   ) {}
 
-  // Member: POST /role-requests  (multipart/form-data)
+  // Member: POST /role-requests  — body: { requestedRole: "student" }
+  // Profile data is read automatically from the member's existing profile
   create = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      // req.file is guaranteed by handleQualificationUpload middleware
-      const file = req.file!;
-
       const parsed = createRoleRequestSchema.safeParse(req.body);
       if (!parsed.success) return next(fromZodError(parsed.error));
 
@@ -39,19 +37,7 @@ export class RoleRequestController {
       const requestId = (req.headers['x-request-id'] as string) ?? '';
 
       const result = await this.createUseCase.execute(
-        {
-          requesterUid:       uid,
-          requestedRole:      'student',
-          firstName:          parsed.data.firstName,
-          lastName:           parsed.data.lastName,
-          phoneNumber:        parsed.data.phoneNumber,
-          email:              parsed.data.email,
-          dateOfBirth:        parsed.data.dateOfBirth,
-          gender:             parsed.data.gender,
-          address:            parsed.data.address,
-          qualificationTitle: parsed.data.qualificationTitle,
-          qualificationFile:  { buffer: file.buffer, mimeType: file.mimetype },
-        },
+        { requesterUid: uid, requestedRole: 'student' },
         requestId,
       );
 

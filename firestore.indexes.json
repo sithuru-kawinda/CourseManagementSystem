@@ -39,6 +39,25 @@
       "queryScope": "COLLECTION",
       "fields": [
         { "fieldPath": "deletedAt",  "order": "ASCENDING" },
+        { "fieldPath": "role",       "order": "ASCENDING" },
+        { "fieldPath": "firstName",  "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "users",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "deletedAt",  "order": "ASCENDING" },
+        { "fieldPath": "role",       "order": "ASCENDING" },
+        { "fieldPath": "status",     "order": "ASCENDING" },
+        { "fieldPath": "firstName",  "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "users",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "deletedAt",  "order": "ASCENDING" },
         { "fieldPath": "status",     "order": "ASCENDING" },
         { "fieldPath": "createdAt",  "order": "DESCENDING" }
       ]

@@ -29,7 +29,13 @@ export class RejectJoinRequestUseCase {
 
     await this.outbox.publishWithBatch({
       type:    'cell.join_rejected',
-      payload: { cellId, requesterUid: joinReq.requesterUid, joinRequestId: joinReq.id, decidedByUid },
+      payload: {
+        cellId,
+        cellName:      cell.name,
+        requesterUid:  joinReq.requesterUid,
+        joinRequestId: joinReq.id,
+        decidedByUid,
+      },
       requestId,
     });
 

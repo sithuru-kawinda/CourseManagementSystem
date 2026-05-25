@@ -28,10 +28,10 @@ export class EmailClient {
         host:   config.smtpHost,
         port:   config.smtpPort,
         secure: config.smtpPort === 465,
-        auth: {
-          user: config.smtpUser,
-          pass: config.smtpPass,
-        },
+        // auth is optional — MailHog requires no credentials
+        ...(config.smtpUser && config.smtpPass
+          ? { auth: { user: config.smtpUser, pass: config.smtpPass } }
+          : {}),
       });
     }
   }
@@ -47,9 +47,9 @@ export class EmailClient {
       return;
     }
 
-    // smtp
+    // smtp (works with MailHog no-auth and Gmail with credentials)
     await this.smtpTransport!.sendMail({
-      from:    `"CMP" <${config.emailFrom}>`,
+      from:    `"TCCR" <${config.emailFrom}>`,
       to:      input.to,
       subject: input.subject,
       html:    input.html,

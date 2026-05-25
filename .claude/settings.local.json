@@ -46,7 +46,9 @@
       "Bash(awk '{print $5}')",
       "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\Asus\\\\Desktop\\\\CMS\\\\packages\\\\cell-service\\\\src\" -Recurse -File)",
       "Bash(Select-Object -ExpandProperty FullName)",
-      "Bash(Sort-Object)"
+      "Bash(Sort-Object)",
+      "Bash(docker exec *)",
+      "Bash(curl -s -X POST http://127.0.0.1:9099/www.googleapis.com/identitytoolkit/v3/relyingparty/verifyPassword?key=AIzaSyDudm6GFhmqLd6zVW0igYL0myX-vN9H5-0 -H 'Content-Type: application/json' -d '{\"email\":\"admin@cmp.com\",\"password\":\"Admin@12345\",\"returnSecureToken\":true}')"
     ]
   }
 }

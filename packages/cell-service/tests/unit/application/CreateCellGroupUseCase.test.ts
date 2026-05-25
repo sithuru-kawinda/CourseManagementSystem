@@ -1,4 +1,4 @@
-import { CreateCellGroupUseCase } from '../../../src/application/use-cases/CreateCellGroupUseCase';
+﻿import { CreateCellGroupUseCase } from '../../../src/application/use-cases/CreateCellGroupUseCase';
 import { ICellGroupRepository }   from '../../../src/domain/repositories/ICellGroupRepository';
 import { OutboxEventPublisher }   from '@shared/events';
 
@@ -8,6 +8,7 @@ const makeRepo = (): jest.Mocked<ICellGroupRepository> => ({
   findAll:      jest.fn(),
   create:       jest.fn(),
   update:       jest.fn(),
+  delete:       jest.fn(),
 });
 const makeOutbox = (): jest.Mocked<OutboxEventPublisher> =>
   ({ publishWithBatch: jest.fn() } as unknown as jest.Mocked<OutboxEventPublisher>);

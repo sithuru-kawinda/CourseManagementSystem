@@ -1,4 +1,4 @@
-import { GetReportByIdUseCase }   from '../../../src/application/use-cases/GetReportByIdUseCase';
+﻿import { GetReportByIdUseCase }   from '../../../src/application/use-cases/GetReportByIdUseCase';
 import { ICellGroupRepository }   from '../../../src/domain/repositories/ICellGroupRepository';
 import { ICellReportRepository }  from '../../../src/domain/repositories/ICellReportRepository';
 import { CellGroup }              from '../../../src/domain/entities/CellGroup';
@@ -6,7 +6,7 @@ import { CellReport }             from '../../../src/domain/entities/CellReport'
 
 const makeRepo = (): jest.Mocked<ICellGroupRepository> => ({
   findById: jest.fn(), findByMember: jest.fn(), findAll: jest.fn(),
-  create: jest.fn(), update: jest.fn(),
+  create: jest.fn(), update: jest.fn(), delete: jest.fn(),
 });
 const makeReportRepo = (): jest.Mocked<ICellReportRepository> => ({
   findById: jest.fn(), findByClientReqId: jest.fn(), findAll: jest.fn(),

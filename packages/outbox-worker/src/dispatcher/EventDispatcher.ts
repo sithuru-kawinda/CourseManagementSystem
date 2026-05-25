@@ -57,16 +57,49 @@ const ROUTES: Record<string, Handler[]> = {
   'cell.created': [
     (p, r) => sendEvent(auditClient,  'cell.created', p, r),
   ],
+  'cell.ownership_transferred': [
+    // Auto-demote the previous owner when they initiated the transfer themselves.
+    // leaderChanged + initiatedByOwner → remove 'leader' from previousLeaderUid
+    // g12Changed    + initiatedByOwner → remove 'g12'    from previousG12LeaderUid
+    async (p, _r) => {
+      const payload = p as Record<string, unknown>;
+      if (!payload.initiatedByOwner) return;
+      const removes: Promise<void>[] = [];
+      if (payload.leaderChanged && payload.previousLeaderUid) {
+        removes.push(
+          userClient.post('/internal/users/remove-role', {
+            uid:  payload.previousLeaderUid,
+            role: 'leader',
+          }).then(() => undefined),
+        );
+      }
+      if (payload.g12Changed && payload.previousG12LeaderUid) {
+        removes.push(
+          userClient.post('/internal/users/remove-role', {
+            uid:  payload.previousG12LeaderUid,
+            role: 'g12',
+          }).then(() => undefined),
+        );
+      }
+      if (removes.length > 0) await Promise.all(removes);
+    },
+    (p, r) => sendEvent(notifyClient, 'cell.ownership_transferred', p, r),
+    (p, r) => sendEvent(auditClient,  'cell.ownership_transferred', p, r),
+  ],
   'cell.join_requested': [
+    (p, r) => sendEvent(notifyClient, 'cell.join_requested', p, r),
     (p, r) => sendEvent(auditClient,  'cell.join_requested', p, r),
   ],
   'cell.join_approved': [
+    (p, r) => sendEvent(notifyClient, 'cell.join_approved', p, r),
     (p, r) => sendEvent(auditClient,  'cell.join_approved', p, r),
   ],
   'cell.join_rejected': [
+    (p, r) => sendEvent(notifyClient, 'cell.join_rejected', p, r),
     (p, r) => sendEvent(auditClient,  'cell.join_rejected', p, r),
   ],
   'cell_report.filed': [
+    (p, r) => sendEvent(notifyClient, 'cell_report.filed', p, r),
     (p, r) => sendEvent(auditClient,  'cell_report.filed', p, r),
   ],
   'cell_report.voided': [

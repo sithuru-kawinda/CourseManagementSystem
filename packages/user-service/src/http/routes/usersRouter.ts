@@ -13,3 +13,5 @@ usersRouter.delete('/users/:uid',             authenticate(), authorize('admin')
 usersRouter.patch('/users/:uid/roles',      authenticate(), authorize('admin', 'g12'),           container.usersController.assignRole);
 // G12 leaders can promote a member/leader to 'leader' or 'g12'
 usersRouter.post('/users/:uid/promote',     authenticate(), authorize('leader', 'g12', 'admin', 'super_admin'), container.usersController.promote);
+// Demote a user — remove a role and revert to remaining roles; caller-role guards inside use case
+usersRouter.post('/users/:uid/demote',      authenticate(), authorize('leader', 'g12', 'admin', 'super_admin'), container.usersController.demote);

@@ -28,9 +28,10 @@ const makeRequest = (status: 'pending' | 'approved' | 'rejected' = 'pending'): R
       firstName: 'John', lastName: 'Doe', phoneNumber: '+94771234567',
       email: 'john@example.com', dateOfBirth: '2000-06-15',
       gender: 'male', address: '123 Main St',
+      qualificationTitle: null, qualificationUrl: null,
     },
     qualificationTitle:       'BSc Computer Science',
-    qualificationStoragePath: 'qualifications/uid-1/req-1.pdf',
+    qualificationStoragePath: null,
   });
 
 describe('ApproveRoleRequestUseCase', () => {
@@ -47,7 +48,11 @@ describe('ApproveRoleRequestUseCase', () => {
     useCase    = new ApproveRoleRequestUseCase(repo, userClient, outbox);
 
     // Default: user-service returns student profile
-    userClient.getUser.mockResolvedValue({ email: 'john@example.com', firstName: 'John', lastName: 'Doe' });
+    userClient.getUser.mockResolvedValue({
+      email: 'john@example.com', firstName: 'John', lastName: 'Doe',
+      phoneNumber: null, dateOfBirth: null, gender: null, address: null,
+      qualificationTitle: null, qualificationUrl: null,
+    });
   });
 
   // ── Happy path ─────────────────────────────────────────────────────────────

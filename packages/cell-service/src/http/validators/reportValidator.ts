@@ -39,6 +39,42 @@ export const voidReportSchema = z.object({
   reason: z.string().min(1).max(500),
 });
 
+/**
+ * PATCH /cells/:id/reports/:rid — update a cell report within 24 hours of filing.
+ * All fields optional (PATCH semantics). clientReqId is excluded — it is immutable.
+ */
+export const updateReportSchema = z.object({
+  date:                   z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'date must be YYYY-MM-DD').optional(),
+  didMeet:                z.boolean().optional(),
+  noMeetReason:           z.string().max(1000).nullable().optional(),
+  leaderPresent:          z.boolean().optional(),
+  conductedByIfAbsent:    z.string().max(200).nullable().optional(),
+  location:               z.string().min(1).max(300).optional(),
+  timeStarted:            z.string().optional(),
+  timeEnded:              z.string().optional(),
+  language:               z.enum(['si', 'ta', 'en']).optional(),
+  subjectDiscussed:       z.enum(['sunday_sermon', 'other']).optional(),
+  otherSubjectReason:     z.string().max(500).nullable().optional(),
+  cellType:               z.enum(['g12', 'care', 'children', 'outreach']).optional(),
+  g12LeaderUid:           z.string().optional(),
+  immediateG12LeaderText: z.string().max(200).nullable().optional(),
+  attendance:             z.array(z.object({
+    userUid: z.string().optional(),
+    name:    z.string().min(1),
+    status:  z.enum(['present', 'absent', 'new']),
+    isNew:   z.boolean(),
+  })).optional(),
+  contactedAbsentees:     z.enum(['yes', 'no', 'future']).optional(),
+  absenteeNotes:          z.string().max(1000).nullable().optional(),
+  additionalVisitors:     z.number().int().min(0).optional(),
+  childrenCount:          z.number().int().min(0).optional(),
+  satisfactionRate:       z.number().int().min(1).max(6).optional(),
+  additionalInfo:         z.string().max(2000).nullable().optional(),
+  photoUrls:              z.array(z.string().url()).max(10).optional(),
+}).refine(data => Object.keys(data).length > 0, {
+  message: 'Request body must contain at least one field to update.',
+});
+
 export const listReportsSchema = z.object({
   limit:  z.coerce.number().int().min(1).max(100).default(20),
   cursor: z.string().optional(),

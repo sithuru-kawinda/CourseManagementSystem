@@ -12,13 +12,22 @@ const makeDispatcher = (): jest.Mocked<NotificationDispatcher> =>
 const makeUserClient = (): jest.Mocked<UserServiceClient> =>
   ({ getAdminUids: jest.fn() } as unknown as jest.Mocked<UserServiceClient>);
 
+// Standard payload — login-link flow (no OTP)
 const PAYLOAD = {
   uid:       'uid-1',
   email:     'alice@example.com',
   firstName: 'Alice',
   lastName:  'Smith',
   password:  'SecurePass@2026',
-  appUrl:    'https://tccr.lk',
+  appUrl:    'https://tccr.lk/login',
+};
+
+// Minimal payload — no password, no appUrl
+const PAYLOAD_MINIMAL = {
+  uid:       'uid-2',
+  email:     'bob@example.com',
+  firstName: 'Bob',
+  lastName:  'Lee',
 };
 
 describe('UserRegisteredHandler', () => {
@@ -37,7 +46,7 @@ describe('UserRegisteredHandler', () => {
 
   // ── Admin notifications ───────────────────────────────────────────────────
 
-  it('creates in-app notification for each admin with V2 "New Member Joined" title', async () => {
+  it('creates in-app notification for each admin with "New Member Joined" title', async () => {
     userClient.getAdminUids.mockResolvedValue(['admin-1', 'admin-2']);
     repo.create.mockResolvedValue(undefined);
     dispatcher.dispatchEmail.mockResolvedValue(undefined);
@@ -75,7 +84,7 @@ describe('UserRegisteredHandler', () => {
     expect(dispatcher.dispatchEmail).toHaveBeenCalledTimes(1);
   });
 
-  // ── Welcome email ─────────────────────────────────────────────────────────
+  // ── Welcome email — subject ───────────────────────────────────────────────
 
   it('sends welcome email to the registering user', async () => {
     userClient.getAdminUids.mockResolvedValue([]);
@@ -91,87 +100,121 @@ describe('UserRegisteredHandler', () => {
     );
   });
 
-  it('welcome email subject says account is active (V2 — no approval wait)', async () => {
+  it('subject says "Your Account is Ready"', async () => {
     userClient.getAdminUids.mockResolvedValue([]);
     dispatcher.dispatchEmail.mockResolvedValue(undefined);
 
-    await handler.handle(PAYLOAD, 'req-1');
+    await handler.handle(PAYLOAD, 'req-subject');
 
     const [, subject] = dispatcher.dispatchEmail.mock.calls[0];
-    expect(subject).not.toMatch(/pending/i);
-    expect(subject).toMatch(/active/i);
+    expect(subject).toMatch(/your account is ready/i);
   });
 
-  it('welcome email body includes the user email address', async () => {
+  it('subject is the same regardless of whether appUrl is present', async () => {
     userClient.getAdminUids.mockResolvedValue([]);
     dispatcher.dispatchEmail.mockResolvedValue(undefined);
 
-    await handler.handle(PAYLOAD, 'req-1');
+    await handler.handle(PAYLOAD_MINIMAL, 'req-subject-no-url');
 
-    const [, , html] = dispatcher.dispatchEmail.mock.calls[0];
-    expect(html).toContain('alice@example.com');
+    const [, subject] = dispatcher.dispatchEmail.mock.calls[0];
+    expect(subject).toMatch(/welcome to tccr/i);
   });
 
-  it('welcome email body includes the password', async () => {
+  // ── Welcome email — body content ──────────────────────────────────────────
+
+  it('email body greets the user by full name', async () => {
     userClient.getAdminUids.mockResolvedValue([]);
     dispatcher.dispatchEmail.mockResolvedValue(undefined);
 
-    await handler.handle(PAYLOAD, 'req-1');
-
-    const [, , html] = dispatcher.dispatchEmail.mock.calls[0];
-    expect(html).toContain('SecurePass@2026');
-  });
-
-  it('welcome email body includes the login link (appUrl)', async () => {
-    userClient.getAdminUids.mockResolvedValue([]);
-    dispatcher.dispatchEmail.mockResolvedValue(undefined);
-
-    await handler.handle(PAYLOAD, 'req-1');
-
-    const [, , html] = dispatcher.dispatchEmail.mock.calls[0];
-    expect(html).toContain('https://tccr.lk');
-  });
-
-  it('welcome email body greets the user by full name', async () => {
-    userClient.getAdminUids.mockResolvedValue([]);
-    dispatcher.dispatchEmail.mockResolvedValue(undefined);
-
-    await handler.handle(PAYLOAD, 'req-1');
+    await handler.handle(PAYLOAD, 'req-name');
 
     const [, , html] = dispatcher.dispatchEmail.mock.calls[0];
     expect(html).toContain('Alice Smith');
   });
 
+  it('email body includes the user email address', async () => {
+    userClient.getAdminUids.mockResolvedValue([]);
+    dispatcher.dispatchEmail.mockResolvedValue(undefined);
+
+    await handler.handle(PAYLOAD, 'req-email');
+
+    const [, , html] = dispatcher.dispatchEmail.mock.calls[0];
+    expect(html).toContain('alice@example.com');
+  });
+
+  it('email body includes the password when present in payload', async () => {
+    userClient.getAdminUids.mockResolvedValue([]);
+    dispatcher.dispatchEmail.mockResolvedValue(undefined);
+
+    await handler.handle(PAYLOAD, 'req-password');
+
+    const [, , html] = dispatcher.dispatchEmail.mock.calls[0];
+    expect(html).toContain('SecurePass@2026');
+  });
+
+  it('email body contains Login button with the appUrl', async () => {
+    userClient.getAdminUids.mockResolvedValue([]);
+    dispatcher.dispatchEmail.mockResolvedValue(undefined);
+
+    await handler.handle(PAYLOAD, 'req-btn');
+
+    const [, , html] = dispatcher.dispatchEmail.mock.calls[0];
+    expect(html).toContain('Log in to TCCR');
+    expect(html).toContain('https://tccr.lk/login');
+  });
+
+  it('email body uses fallback login URL when appUrl is absent', async () => {
+    userClient.getAdminUids.mockResolvedValue([]);
+    dispatcher.dispatchEmail.mockResolvedValue(undefined);
+
+    await handler.handle(PAYLOAD_MINIMAL, 'req-fallback');
+
+    const [, , html] = dispatcher.dispatchEmail.mock.calls[0];
+    // Fallback URL from config — button is always rendered
+    expect(html).toContain('Log in to TCCR');
+    expect(html).toContain('cms.bethelnet.au');
+  });
+
+  it('does NOT contain any OTP code — login-link flow replaces OTP flow', async () => {
+    userClient.getAdminUids.mockResolvedValue([]);
+    dispatcher.dispatchEmail.mockResolvedValue(undefined);
+
+    await handler.handle(PAYLOAD, 'req-no-otp');
+
+    const [, , html] = dispatcher.dispatchEmail.mock.calls[0];
+    // No 6-digit OTP block — users go straight to the login page
+    expect(html).not.toMatch(/\b\d{6}\b/);
+    expect(html).not.toContain('verify-email');
+  });
+
   it('sends welcome email even when password is omitted in payload', async () => {
     userClient.getAdminUids.mockResolvedValue([]);
     dispatcher.dispatchEmail.mockResolvedValue(undefined);
-    const payloadNoPassword = { uid: 'uid-2', email: 'bob@example.com', firstName: 'Bob', lastName: 'Lee' };
 
-    await handler.handle(payloadNoPassword, 'req-2');
+    await handler.handle(PAYLOAD_MINIMAL, 'req-no-pass');
 
     expect(dispatcher.dispatchEmail).toHaveBeenCalledWith(
       'bob@example.com',
       expect.stringContaining('Welcome to TCCR'),
       expect.any(String),
-      'req-2',
+      'req-no-pass',
     );
   });
 
-  it('omits login button when appUrl is not in payload', async () => {
+  it('email body includes TCCR branding (The Christian Center Rathmalana)', async () => {
     userClient.getAdminUids.mockResolvedValue([]);
     dispatcher.dispatchEmail.mockResolvedValue(undefined);
-    const payloadNoUrl = { ...PAYLOAD, appUrl: undefined };
 
-    await handler.handle(payloadNoUrl, 'req-3');
+    await handler.handle(PAYLOAD, 'req-brand');
 
     const [, , html] = dispatcher.dispatchEmail.mock.calls[0];
-    expect(html).not.toContain('Log in to TCCR');
+    expect(html).toContain('The Christian Center Rathmalana');
   });
 
   // ── Error propagation ─────────────────────────────────────────────────────
 
   it('propagates errors from userClient.getAdminUids', async () => {
     userClient.getAdminUids.mockRejectedValue(new Error('Client error'));
-    await expect(handler.handle(PAYLOAD, 'req-1')).rejects.toThrow('Client error');
+    await expect(handler.handle(PAYLOAD, 'req-err')).rejects.toThrow('Client error');
   });
 });

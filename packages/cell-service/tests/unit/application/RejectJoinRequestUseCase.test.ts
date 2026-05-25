@@ -1,4 +1,4 @@
-import { RejectJoinRequestUseCase } from '../../../src/application/use-cases/RejectJoinRequestUseCase';
+﻿import { RejectJoinRequestUseCase } from '../../../src/application/use-cases/RejectJoinRequestUseCase';
 import { ICellGroupRepository }      from '../../../src/domain/repositories/ICellGroupRepository';
 import { IJoinRequestRepository }    from '../../../src/domain/repositories/IJoinRequestRepository';
 import { OutboxEventPublisher }      from '@shared/events';
@@ -7,7 +7,7 @@ import { JoinRequest }               from '../../../src/domain/entities/JoinRequ
 
 const makeRepo = (): jest.Mocked<ICellGroupRepository> => ({
   findById: jest.fn(), findByMember: jest.fn(), findAll: jest.fn(),
-  create: jest.fn(), update: jest.fn(),
+  create: jest.fn(), update: jest.fn(), delete: jest.fn(),
 });
 const makeJoinRepo = (): jest.Mocked<IJoinRequestRepository> => ({
   findById: jest.fn(), findPendingByRequester: jest.fn(), findAll: jest.fn(),

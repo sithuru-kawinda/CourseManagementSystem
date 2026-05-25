@@ -259,6 +259,88 @@ const authFolder = folder('1️⃣ Auth Service', [
       `if (j.uid) { pm.environment.set("registeredUid", j.uid); }`,
     ],
   }),
+  // Resend Verification OTP — public, no token required
+  // 204 = new OTP sent (or email not found — silent); 400 = already verified
+  buildRequest({
+    name: 'Resend Verification Email',
+    method: 'POST',
+    url: { raw: '{{baseUrl}}/auth/resend-verification' },
+    auth: noAuth(),
+    headers: jsonHeader(),
+    body: jsonBody({ email: 'newmember{{runId}}@test.com' }),
+    tests: [
+      `pm.test("204 or 400 — Resend Verification (400 = already verified)", () => {`,
+      `  pm.expect([204, 400]).to.include(pm.response.code);`,
+      `});`,
+    ],
+  }),
+
+  // Verify Email with OTP — public, no token required
+  // The OTP is the 6-digit code sent in the welcome email.
+  // In the emulator test environment the OTP is read from Firestore directly.
+  // 204 = email verified; 400 = invalid/expired OTP
+  buildRequest({
+    name: 'Verify Email OTP',
+    method: 'POST',
+    url: { raw: '{{baseUrl}}/auth/verify-email' },
+    auth: noAuth(),
+    headers: jsonHeader(),
+    body: jsonBody({ email: 'newmember{{runId}}@test.com', otp: '000000' }),
+    tests: [
+      `// 400 is expected in automated runs because the OTP is unknown at test time.`,
+      `// In a real test, fetch the OTP from Firestore and pass it here.`,
+      `pm.test("204 or 400 — Verify Email OTP (400 = wrong OTP in automated run)", () => {`,
+      `  pm.expect([204, 400]).to.include(pm.response.code);`,
+      `});`,
+    ],
+  }),
+
+  // Register with fake domain — should be blocked (422)
+  buildRequest({
+    name: 'Register — Fake Domain (expect 422)',
+    method: 'POST',
+    url: { raw: '{{baseUrl}}/auth/register' },
+    auth: noAuth(),
+    headers: jsonHeader(),
+    body: jsonBody({
+      firstName: 'Fake',
+      lastName:  'User',
+      email:     'test@fakexyz99999domain.com',
+      password:  'Test@2026!',
+      preferredLanguage: 'en',
+    }),
+    tests: [
+      `pm.test("422 — Fake email domain blocked", () => pm.response.to.have.status(422));`,
+      `const j = pm.response.json();`,
+      `pm.test("error code is EMAIL_DOMAIN_UNREACHABLE", () => {`,
+      `  pm.expect(j.error.code).to.equal("EMAIL_DOMAIN_UNREACHABLE");`,
+      `});`,
+    ],
+  }),
+
+  // Register with disposable email — should be blocked (422)
+  buildRequest({
+    name: 'Register — Disposable Email (expect 422)',
+    method: 'POST',
+    url: { raw: '{{baseUrl}}/auth/register' },
+    auth: noAuth(),
+    headers: jsonHeader(),
+    body: jsonBody({
+      firstName: 'Disposable',
+      lastName:  'User',
+      email:     'test@mailinator.com',
+      password:  'Test@2026!',
+      preferredLanguage: 'en',
+    }),
+    tests: [
+      `pm.test("422 — Disposable email blocked", () => pm.response.to.have.status(422));`,
+      `const j = pm.response.json();`,
+      `pm.test("error code is DISPOSABLE_EMAIL", () => {`,
+      `  pm.expect(j.error.code).to.equal("DISPOSABLE_EMAIL");`,
+      `});`,
+    ],
+  }),
+
   // Step 2: Sign in as that new member to get a disposable token for Logout
   buildRequest({
     name: 'Sign In — New Member (for logout test)',
@@ -443,8 +525,23 @@ const meFolder = folder('2️⃣ User Service — Me', [
     url: { raw: '{{baseUrl}}/me' },
     auth: bearerAuth('studentToken'),
     headers: jsonHeader(),
-    body: jsonBody({ firstName: 'Updated', lastName: 'Student', preferredLanguage: 'si', phoneNumber: '+94771234567' }),
-    tests: [`pm.test("200 OK — Update Profile", () => pm.response.to.have.status(200));`],
+    body: jsonBody({
+      firstName:          'Updated',
+      lastName:           'Student',
+      preferredLanguage:  'si',
+      phoneNumber:        '+94771234567',
+      dateOfBirth:        '2000-06-15',
+      gender:             'male',
+      address:            '123 Main St, Colombo',
+      qualificationTitle: 'BSc Computer Science',
+    }),
+    description: 'Update own profile. Includes extended fields required for role request eligibility (dateOfBirth, gender, address, qualificationTitle).',
+    tests: [
+      `pm.test("200 OK — Update Profile", () => pm.response.to.have.status(200));`,
+      `const j = pm.response.json();`,
+      `pm.test("dateOfBirth stored", () => pm.expect(j.dateOfBirth).to.equal("2000-06-15"));`,
+      `pm.test("gender stored",      () => pm.expect(j.gender).to.equal("male"));`,
+    ],
   }),
   // Upload avatar — multipart/form-data
   {
@@ -473,6 +570,52 @@ const meFolder = folder('2️⃣ User Service — Me', [
       `pm.test("200 OK or 400/415 — Upload Avatar", () => {`,
       `  pm.expect([200, 400, 415]).to.include(pm.response.code);`,
       `});`,
+    ]),
+  },
+  // Upload qualification PDF — POST /me/qualification (multipart, field: qualification, PDF only, max 10 MB)
+  {
+    id: uuid(),
+    name: 'Upload Qualification PDF',
+    request: {
+      method: 'POST',
+      header: [],
+      body: {
+        mode: 'formdata',
+        formdata: [
+          {
+            key: 'qualification',
+            type: 'file',
+            src: '',
+            description: 'Select a PDF file (max 10 MB). Field name must be "qualification".',
+          },
+        ],
+      },
+      url: makeUrl('{{baseUrl}}/me/qualification'),
+      auth: bearerAuth('studentToken'),
+      description: [
+        'Upload or replace the authenticated user\'s qualification PDF.',
+        'Stored under qualifications/{uid}.pdf in Firebase Storage.',
+        'The download URL is saved as qualificationUrl on the user document.',
+        'This URL is automatically included when POST /role-requests is called.',
+        '',
+        'Field        | Type | Required',
+        '-------------|------|--------',
+        'qualification | file | Yes — PDF only, max 10 MB',
+        '',
+        'Newman note: 400 is expected (no real file on disk). Use Postman UI to test a real PDF upload.',
+      ].join('\n'),
+    },
+    response: [],
+    event: testScript([
+      `pm.test("200 or 400/413/415 — Upload Qualification", () => {`,
+      `  pm.expect([200, 400, 413, 415]).to.include(pm.response.code);`,
+      `});`,
+      `if (pm.response.code === 200) {`,
+      `  const j = pm.response.json();`,
+      `  pm.test("qualificationUrl is a string", () => pm.expect(j.qualificationUrl).to.be.a("string"));`,
+      `  pm.test("qualificationStoragePath is a string", () => pm.expect(j.qualificationStoragePath).to.be.a("string"));`,
+      `  pm.environment.set("qualificationUrl", j.qualificationUrl);`,
+      `}`,
     ]),
   },
   // Change password on student1 (pending, won't affect the primary studentToken = student2)
@@ -607,6 +750,35 @@ const adminUsersFolder = folder('3️⃣ User Service — Admin Manage Users', [
       `pm.test("200 OK — G12 Search Users", () => pm.response.to.have.status(200));`,
       `const j = pm.response.json();`,
       `pm.test("items is array", () => pm.expect(j.items).to.be.an("array"));`,
+    ],
+  }),
+  buildRequest({
+    name: 'Filter Users by Role + Name Prefix (Admin)',
+    method: 'GET',
+    url: {
+      raw: '{{baseUrl}}/users?role=g12&name=mem&limit=20',
+      query: [
+        { key: 'role',  value: 'g12',  description: 'Filter by role — member | student | leader | g12 | admin | super_admin' },
+        { key: 'name',  value: 'mem',  description: 'Case-sensitive prefix match on firstName only' },
+        { key: 'limit', value: '20',   description: 'Max results per page (1–100)' },
+      ],
+    },
+    auth: bearerAuth('adminToken'),
+    tests: [
+      `pm.test("200 OK — Filter by role + name", () => pm.response.to.have.status(200));`,
+      `const j = pm.response.json();`,
+      `pm.test("response has items array", () => pm.expect(j.items).to.be.an("array"));`,
+      `pm.test("response has total", () => pm.expect(j).to.have.property("total"));`,
+      `pm.test("all returned users have g12 role", () => {`,
+      `  (j.items || []).forEach(u => {`,
+      `    pm.expect((u.roles || []).includes("g12")).to.be.true;`,
+      `  });`,
+      `});`,
+      `pm.test("all returned firstName starts with 'mem' (case-sensitive)", () => {`,
+      `  (j.items || []).forEach(u => {`,
+      `    pm.expect(u.firstName).to.match(/^mem/);`,
+      `  });`,
+      `});`,
     ],
   }),
   // ─────────────────────────────────────────────────────────────────────────────
@@ -895,6 +1067,69 @@ const adminUsersFolder = folder('3️⃣ User Service — Admin Manage Users', [
     headers: jsonHeader(),
     body: jsonBody({ role: 'g12' }),
     tests: [`pm.test("403 — student cannot promote", () => pm.response.to.have.status(403));`],
+  }),
+
+  // ── Demote ─────────────────────────────────────────────────────────────────
+  // Demote the registeredUid user (was promoted to leader/g12 above) back to member.
+  // Uses admin token which can demote leader/g12/student.
+  buildRequest({
+    name: 'Demote user → remove leader role (admin caller) ★ NEW',
+    method: 'POST',
+    url: { raw: '{{baseUrl}}/users/{{registeredUid}}/demote' },
+    auth: bearerAuth('adminToken'),
+    headers: jsonHeader(),
+    body: jsonBody({ role: 'leader' }),
+    tests: [
+      `// 204 = demoted; 404 = user not found (expected if promote was skipped)`,
+      `pm.test("204 or 404 — admin demotes leader", () => { pm.expect([204, 404]).to.include(pm.response.code); });`,
+    ],
+  }),
+  buildRequest({
+    name: 'Demote user → remove g12 role (admin caller) ★ NEW',
+    method: 'POST',
+    url: { raw: '{{baseUrl}}/users/{{registeredUid}}/demote' },
+    auth: bearerAuth('adminToken'),
+    headers: jsonHeader(),
+    body: jsonBody({ role: 'g12' }),
+    tests: [`pm.test("204 or 404 — admin demotes g12", () => { pm.expect([204, 404]).to.include(pm.response.code); });`],
+  }),
+  buildRequest({
+    name: 'G12 demotes leader (g12 caller) — allowed',
+    method: 'POST',
+    url: { raw: '{{baseUrl}}/users/{{registeredUid}}/demote' },
+    auth: bearerAuth('g12Token'),
+    headers: jsonHeader(),
+    body: jsonBody({ role: 'leader' }),
+    description: 'g12 can demote leader role only — this should succeed (204) or 404 if user not found.',
+    tests: [`pm.test("204 or 404 — g12 demotes leader", () => { pm.expect([204, 404]).to.include(pm.response.code); });`],
+  }),
+  buildRequest({
+    name: 'G12 tries to demote g12 (expect 403)',
+    method: 'POST',
+    url: { raw: '{{baseUrl}}/users/{{registeredUid}}/demote' },
+    auth: bearerAuth('g12Token'),
+    headers: jsonHeader(),
+    body: jsonBody({ role: 'g12' }),
+    description: 'g12 cannot demote another g12 — forbidden. Only admin/super_admin can remove the g12 role.',
+    tests: [`pm.test("403 — g12 cannot demote another g12", () => pm.response.to.have.status(403));`],
+  }),
+  buildRequest({
+    name: 'Leader tries demote → leader (expect 403) ★ NEW',
+    method: 'POST',
+    url: { raw: '{{baseUrl}}/users/{{registeredUid}}/demote' },
+    auth: bearerAuth('leaderToken'),
+    headers: jsonHeader(),
+    body: jsonBody({ role: 'leader' }),
+    tests: [`pm.test("403 — leader cannot demote another leader", () => pm.response.to.have.status(403));`],
+  }),
+  buildRequest({
+    name: 'Student tries demote (expect 403) ★ NEW',
+    method: 'POST',
+    url: { raw: '{{baseUrl}}/users/{{registeredUid}}/demote' },
+    auth: bearerAuth('studentToken'),
+    headers: jsonHeader(),
+    body: jsonBody({ role: 'g12' }),
+    tests: [`pm.test("403 — student cannot demote", () => pm.response.to.have.status(403));`],
   }),
 ]);
 
@@ -1450,77 +1685,48 @@ const enrollmentFolder = folder('7️⃣ Enrollment', [
 // ---------------------------------------------------------------------------
 
 const roleRequestsFolder = folder('8️⃣ Role Requests (V2)', [
-  // ── 1. Create Role Request — multipart/form-data (PDF required) ────────────
-  // Content-Type is set automatically by the multipart body; do NOT add it manually.
-  // Newman cannot load a real PDF from disk, so the server returns 400 (file required).
-  // In Postman UI: set body to form-data and select a PDF file for qualificationFile.
-  {
-    id: uuid(),
-    name: 'Create Role Request (multipart)',
-    request: {
-      method: 'POST',
-      header: [],
-      body: {
-        mode: 'formdata',
-        formdata: [
-          { key: 'requestedRole',      value: 'student',                  type: 'text' },
-          { key: 'firstName',          value: 'Test',                     type: 'text' },
-          { key: 'lastName',           value: 'Student',                  type: 'text' },
-          { key: 'phoneNumber',        value: '+94771234567',             type: 'text' },
-          { key: 'email',              value: 'test.student@example.com', type: 'text' },
-          { key: 'dateOfBirth',        value: '2000-06-15',               type: 'text' },
-          { key: 'gender',             value: 'male',                     type: 'text' },
-          { key: 'address',            value: '123 Main St, Colombo',     type: 'text' },
-          { key: 'qualificationTitle', value: 'BSc Computer Science',     type: 'text' },
-          {
-            key: 'qualificationFile',
-            type: 'file',
-            src: '',
-            description: 'Select a PDF file (max 10 MB). Required — request returns 400 without it.',
-          },
-        ],
-      },
-      url: makeUrl('{{baseUrl}}/role-requests'),
-      auth: bearerAuth('studentToken'),
-      description: [
-        'Submit a student role application. All fields are multipart form data.',
-        '',
-        'Field          | Value',
-        '---------------|----------------------------------------',
-        'requestedRole  | student',
-        'firstName      | Applicant first name',
-        'lastName       | Applicant last name',
-        'phoneNumber    | e.g. +94771234567',
-        'email          | Valid email address',
-        'dateOfBirth    | YYYY-MM-DD',
-        'gender         | male | female | other',
-        'address        | Free text (max 500 chars)',
-        'qualificationTitle | Title of the qualification PDF',
-        'qualificationFile  | PDF file, max 10 MB',
-        '',
-        'Newman note: 400 is expected (no file on disk). Use Postman UI to test a real PDF upload.',
-      ].join('\n'),
-    },
-    response: [],
-    event: testScript([
-      `if (pm.response && pm.response.code !== undefined) {`,
-      `  // 400 = no file (Newman); 403 = token has stale role claims (re-run after role restoration); 409 = already pending; 413 = too large; 415 = not PDF`,
-      `  pm.test("201/400/403/409/413/415 — Create Role Request", () => {`,
-      `    pm.expect([201, 400, 403, 409, 413, 415]).to.include(pm.response.code);`,
-      `  });`,
-      `  try {`,
-      `    const j = pm.response.json();`,
-      `    if (j && j.id) {`,
-      `      pm.environment.set("roleRequestId", j.id);`,
-      `      pm.test("applicantProfile is an object", () => pm.expect(j.applicantProfile).to.be.an("object"));`,
-      `      pm.test("qualificationStoragePath is a string", () => pm.expect(j.qualificationStoragePath).to.be.a("string"));`,
-      `    }`,
-      `  } catch (_) {}`,
-      `} else {`,
-      `  console.warn("Create Role Request skipped — no file source available in Newman.");`,
+  // ── 1. Create Role Request — JSON body: { requestedRole: "student" } ────────
+  // Profile data (dateOfBirth, gender, address, qualificationTitle, qualificationUrl)
+  // is read automatically from the member's existing profile via user-service.
+  // Prerequisites: PATCH /me with profile fields + POST /me/qualification to upload PDF.
+  buildRequest({
+    name: 'Create Role Request',
+    method: 'POST',
+    url: { raw: '{{baseUrl}}/role-requests' },
+    auth: bearerAuth('tempMemberToken'),
+    headers: jsonHeader(),
+    body: jsonBody({ requestedRole: 'student' }),
+    description: [
+      'Submit a student role application.',
+      '',
+      'Prerequisites (must be done first):',
+      '  1. PATCH /me — fill dateOfBirth, gender, address, qualificationTitle',
+      '  2. POST /me/qualification — upload the PDF to user profile',
+      '',
+      'The system reads all personal details from the member\'s profile automatically.',
+      'No personal fields needed in this request — only { requestedRole: "student" }.',
+      '',
+      'Errors:',
+      '  400 VALIDATION_ERROR  — missing or invalid requestedRole',
+      '  404 USER_NOT_FOUND    — profile could not be loaded',
+      '  409 ROLE_REQUEST_PENDING — already has a pending request',
+    ].join('\n'),
+    tests: [
+      `pm.test("201/403/404/409 — Create Role Request", () => {`,
+      `  pm.expect([201, 403, 404, 409]).to.include(pm.response.code);`,
+      `});`,
+      `if (pm.response.code === 201) {`,
+      `  const j = pm.response.json();`,
+      `  pm.environment.set("roleRequestId", j.id);`,
+      `  pm.test("id is a string",              () => pm.expect(j.id).to.be.a("string"));`,
+      `  pm.test("status is pending",           () => pm.expect(j.status).to.equal("pending"));`,
+      `  pm.test("requestedRole is student",    () => pm.expect(j.requestedRole).to.equal("student"));`,
+      `  pm.test("applicantProfile is object",  () => pm.expect(j.applicantProfile).to.be.an("object"));`,
+      `  pm.test("applicantProfile.email set",  () => pm.expect(j.applicantProfile.email).to.be.a("string"));`,
+      `  pm.test("qualificationStoragePath is null", () => pm.expect(j.qualificationStoragePath).to.be.null);`,
       `}`,
-    ]),
-  },
+    ],
+  }),
 
   // ── 2. Get My Role Requests ────────────────────────────────────────────────
   // Response: plain array (NOT paginated). GetMyRoleRequestsUseCase uses sendSuccess(), not sendPaginated().
@@ -1546,21 +1752,25 @@ const roleRequestsFolder = folder('8️⃣ Role Requests (V2)', [
       `  pm.test("createdAt is a string",     () => pm.expect(first.createdAt).to.be.a("string"));`,
       `  if (first.applicantProfile) {`,
       `    pm.test("applicantProfile.firstName is a string",   () => pm.expect(first.applicantProfile.firstName).to.be.a("string"));`,
-      `    pm.test("applicantProfile.dateOfBirth is a string", () => pm.expect(first.applicantProfile.dateOfBirth).to.be.a("string"));`,
-      `    pm.test("applicantProfile.gender is valid",         () => pm.expect(["male","female","other"]).to.include(first.applicantProfile.gender));`,
+      `    if (first.applicantProfile.dateOfBirth) pm.test("applicantProfile.dateOfBirth is a string", () => pm.expect(first.applicantProfile.dateOfBirth).to.be.a("string"));`,
+      `    if (first.applicantProfile.gender) pm.test("applicantProfile.gender is valid", () => pm.expect(["male","female","other"]).to.include(first.applicantProfile.gender));`,
       `  }`,
-      `  pm.test("qualificationTitle is a string", () => pm.expect(first.qualificationTitle).to.be.a("string"));`,
-      `  pm.test("qualificationStoragePath is a string", () => pm.expect(first.qualificationStoragePath).to.be.a("string"));`,
+      `  if (first.qualificationTitle) pm.test("qualificationTitle is a string", () => pm.expect(first.qualificationTitle).to.be.a("string"));`,
+      `  pm.test("qualificationStoragePath is null (PDF now on profile)", () => pm.expect(first.qualificationStoragePath).to.be.null);`,
+      `  if (first.applicantProfile && first.applicantProfile.qualificationUrl) {`,
+      `    pm.test("applicantProfile.qualificationUrl is a string", () => pm.expect(first.applicantProfile.qualificationUrl).to.be.a("string"));`,
+      `  }`,
       `}`,
     ],
   }),
 
-  // ── 3. List Role Requests (Admin) ─────────────────────────────────────────
+  // ── 3. List Role Requests (Admin only) ───────────────────────────────────
   buildRequest({
-    name: 'List Role Requests (Admin)',
+    name: 'List Role Requests (Admin only)',
     method: 'GET',
     url: { raw: '{{baseUrl}}/role-requests' },
     auth: bearerAuth('adminToken'),
+    description: 'Only admin can list all role requests. leader and g12 do not have access (403).',
     tests: [
       `pm.test("200 OK — List Role Requests", () => pm.response.to.have.status(200));`,
       `const j = pm.response.json();`,
@@ -1569,10 +1779,21 @@ const roleRequestsFolder = folder('8️⃣ Role Requests (V2)', [
       `  if (!pm.environment.get("roleRequestId")) { pm.environment.set("roleRequestId", j.items[0].id); }`,
       `  if (j.items[0].applicantProfile) {`,
       `    pm.test("applicantProfile.email is a string", () => pm.expect(j.items[0].applicantProfile.email).to.be.a("string"));`,
-      `    pm.test("qualificationTitle present on list item", () => pm.expect(j.items[0].qualificationTitle).to.be.a("string"));`,
+      `    if (j.items[0].applicantProfile.qualificationUrl) {`,
+      `      pm.test("qualificationUrl is a string", () => pm.expect(j.items[0].applicantProfile.qualificationUrl).to.be.a("string"));`,
+      `    }`,
       `  }`,
+      `  if (j.items[0].qualificationTitle) pm.test("qualificationTitle is a string", () => pm.expect(j.items[0].qualificationTitle).to.be.a("string"));`,
       `}`,
     ],
+  }),
+  buildRequest({
+    name: 'List Role Requests — leader (expect 403)',
+    method: 'GET',
+    url: { raw: '{{baseUrl}}/role-requests' },
+    auth: bearerAuth('leaderToken'),
+    description: 'leader does not have access to list all role requests — only admin can.',
+    tests: [`pm.test("403 — leader cannot list role requests", () => pm.response.to.have.status(403));`],
   }),
 
   // ── 4. Get Own Role Request by ID (Member) ────────────────────────────────
@@ -1605,16 +1826,17 @@ const roleRequestsFolder = folder('8️⃣ Role Requests (V2)', [
       `  pm.test("requestedRole is student", () => pm.expect(j.requestedRole).to.equal("student"));`,
       `  pm.test("status is valid",          () => pm.expect(["pending","approved","rejected"]).to.include(j.status));`,
       `  pm.test("createdAt is a string",    () => pm.expect(j.createdAt).to.be.a("string"));`,
-      `  pm.test("qualificationTitle is a string",       () => pm.expect(j.qualificationTitle).to.be.a("string"));`,
-      `  pm.test("qualificationStoragePath is a string", () => pm.expect(j.qualificationStoragePath).to.be.a("string"));`,
+      `  if (j.qualificationTitle) pm.test("qualificationTitle is a string", () => pm.expect(j.qualificationTitle).to.be.a("string"));`,
+      `  pm.test("qualificationStoragePath is null", () => pm.expect(j.qualificationStoragePath).to.be.null);`,
       `  pm.test("applicantProfile is an object",        () => pm.expect(j.applicantProfile).to.be.an("object"));`,
       `  pm.test("applicantProfile.firstName present",   () => pm.expect(j.applicantProfile.firstName).to.be.a("string"));`,
       `  pm.test("applicantProfile.lastName present",    () => pm.expect(j.applicantProfile.lastName).to.be.a("string"));`,
-      `  pm.test("applicantProfile.phoneNumber present", () => pm.expect(j.applicantProfile.phoneNumber).to.be.a("string"));`,
       `  pm.test("applicantProfile.email present",       () => pm.expect(j.applicantProfile.email).to.be.a("string"));`,
-      `  pm.test("applicantProfile.dateOfBirth present", () => pm.expect(j.applicantProfile.dateOfBirth).to.be.a("string"));`,
-      `  pm.test("applicantProfile.gender is valid",     () => pm.expect(["male","female","other"]).to.include(j.applicantProfile.gender));`,
-      `  pm.test("applicantProfile.address present",     () => pm.expect(j.applicantProfile.address).to.be.a("string"));`,
+      `  if (j.applicantProfile.phoneNumber) pm.test("applicantProfile.phoneNumber present", () => pm.expect(j.applicantProfile.phoneNumber).to.be.a("string"));`,
+      `  if (j.applicantProfile.dateOfBirth) pm.test("applicantProfile.dateOfBirth present", () => pm.expect(j.applicantProfile.dateOfBirth).to.be.a("string"));`,
+      `  if (j.applicantProfile.gender)      pm.test("applicantProfile.gender is valid",     () => pm.expect(["male","female","other"]).to.include(j.applicantProfile.gender));`,
+      `  if (j.applicantProfile.address)     pm.test("applicantProfile.address present",     () => pm.expect(j.applicantProfile.address).to.be.a("string"));`,
+      `  if (j.applicantProfile.qualificationUrl) pm.test("qualificationUrl is a string", () => pm.expect(j.applicantProfile.qualificationUrl).to.be.a("string"));`,
       `}`,
     ],
   }),
@@ -1713,8 +1935,8 @@ const roleRequestsFolder = folder('8️⃣ Role Requests (V2)', [
       `  pm.test("decidedAt is a string",       () => pm.expect(j.decidedAt).to.be.a("string"));`,
       `  pm.test("decisionNote matches sent note", () => pm.expect(j.decisionNote).to.equal("Welcome! You can now enroll in courses."));`,
       `  pm.test("applicantProfile is an object",  () => pm.expect(j.applicantProfile).to.be.an("object"));`,
-      `  pm.test("qualificationTitle is a string", () => pm.expect(j.qualificationTitle).to.be.a("string"));`,
-      `  pm.test("qualificationStoragePath is a string", () => pm.expect(j.qualificationStoragePath).to.be.a("string"));`,
+      `  if (j.qualificationTitle) pm.test("qualificationTitle is a string", () => pm.expect(j.qualificationTitle).to.be.a("string"));`,
+      `  pm.test("qualificationStoragePath is null", () => pm.expect(j.qualificationStoragePath).to.be.null);`,
       `  pm.test("createdAt is a string",       () => pm.expect(j.createdAt).to.be.a("string"));`,
       `}`,
       `if (pm.response.code === 409) {`,
@@ -1761,7 +1983,8 @@ const roleRequestsFolder = folder('8️⃣ Role Requests (V2)', [
       `  pm.test("decidedAt is a string",       () => pm.expect(j.decidedAt).to.be.a("string"));`,
       `  pm.test("decisionNote matches sent note", () => pm.expect(j.decisionNote).to.equal("Rejected for testing."));`,
       `  pm.test("applicantProfile is an object",  () => pm.expect(j.applicantProfile).to.be.an("object"));`,
-      `  pm.test("qualificationTitle is a string", () => pm.expect(j.qualificationTitle).to.be.a("string"));`,
+      `  if (j.qualificationTitle) pm.test("qualificationTitle is a string", () => pm.expect(j.qualificationTitle).to.be.a("string"));`,
+      `  pm.test("qualificationStoragePath is null", () => pm.expect(j.qualificationStoragePath).to.be.null);`,
       `  pm.test("createdAt is a string",       () => pm.expect(j.createdAt).to.be.a("string"));`,
       `}`,
       `if (pm.response.code === 409) {`,
@@ -2103,12 +2326,37 @@ const cellCrudSubFolder = folder('Cell CRUD', [
     ],
   }),
   buildRequest({
-    name: 'List Cell Groups',
+    name: 'List Cell Groups (leader — active only)',
     method: 'GET',
     url: { raw: '{{baseUrl}}/cells?limit=20' },
     auth: bearerAuth('leaderToken'),
     tests: [
-      `pm.test("200 OK — List Cells", () => pm.response.to.have.status(200));`,
+      `pm.test("200 OK — List Cells (leader)", () => pm.response.to.have.status(200));`,
+      `const j = pm.response.json();`,
+      `pm.test("items is array", () => pm.expect(j.items).to.be.an("array"));`,
+    ],
+  }),
+  // Admin sees ALL states (active + archived) by default — no ?state filter needed ★ NEW
+  buildRequest({
+    name: 'List Cell Groups — Admin (all states, no filter) ★ NEW',
+    method: 'GET',
+    url: { raw: '{{baseUrl}}/cells?limit=20' },
+    auth: bearerAuth('adminToken'),
+    tests: [
+      `pm.test("200 OK — Admin sees all cell states", () => pm.response.to.have.status(200));`,
+      `const j = pm.response.json();`,
+      `pm.test("items is array", () => pm.expect(j.items).to.be.an("array"));`,
+      `pm.test("total is a number", () => pm.expect(j.total).to.be.a("number"));`,
+    ],
+  }),
+  // Admin can filter to archived only ★ NEW
+  buildRequest({
+    name: 'List Cell Groups — Admin filter archived ★ NEW',
+    method: 'GET',
+    url: { raw: '{{baseUrl}}/cells?limit=20&state=archived' },
+    auth: bearerAuth('adminToken'),
+    tests: [
+      `pm.test("200 OK — Admin filters archived cells", () => pm.response.to.have.status(200));`,
       `const j = pm.response.json();`,
       `pm.test("items is array", () => pm.expect(j.items).to.be.an("array"));`,
     ],
@@ -2209,6 +2457,36 @@ const joinRequestsSubFolder = folder('Join Requests', [
 ]);
 
 const cellReportsSubFolder = folder('Cell Reports', [
+  // Network Reports — G12 sees all leaders' reports across their entire network ★ NEW
+  buildRequest({
+    name: 'Get Network Reports — G12 view ★ NEW',
+    method: 'GET',
+    url: { raw: '{{baseUrl}}/cells/network/reports?limit=20' },
+    auth: bearerAuth('g12Token'),
+    tests: [
+      `pm.test("200 OK — G12 Network Reports", () => pm.response.to.have.status(200));`,
+      `const j = pm.response.json();`,
+      `pm.test("items is array",   () => pm.expect(j.items).to.be.an("array"));`,
+      `pm.test("totalCells exists", () => pm.expect(j.totalCells).to.be.a("number"));`,
+    ],
+  }),
+  buildRequest({
+    name: 'Get Network Reports — Admin (all cells) ★ NEW',
+    method: 'GET',
+    url: { raw: '{{baseUrl}}/cells/network/reports?limit=10' },
+    auth: bearerAuth('adminToken'),
+    tests: [
+      `pm.test("200 OK — Admin Network Reports", () => pm.response.to.have.status(200));`,
+    ],
+  }),
+  buildRequest({
+    name: 'Get Network Reports — member (expect 403) ★ NEW',
+    method: 'GET',
+    url: { raw: '{{baseUrl}}/cells/network/reports' },
+    auth: bearerAuth('studentToken'),
+    tests: [`pm.test("403 — student cannot access network reports", () => pm.response.to.have.status(403));`],
+  }),
+
   // Upload report photos first — returns URLs to include in photoUrls[] of fileReport
   {
     id: uuid(),
@@ -2314,6 +2592,25 @@ const cellReportsSubFolder = folder('Cell Reports', [
     auth: bearerAuth('leaderToken'),
     tests: [`pm.test("200 OK — Get Cell Report", () => pm.response.to.have.status(200));`],
   }),
+  // Edit cell report — only within 24 hours of filing; only by the filer or super_admin
+  buildRequest({
+    name: 'Edit Cell Report (within 24h) ★ NEW',
+    method: 'PATCH',
+    url: { raw: '{{baseUrl}}/cells/{{cellId}}/reports/{{cellReportId}}' },
+    auth: bearerAuth('leaderToken'),
+    headers: jsonHeader(),
+    body: jsonBody({ additionalInfo: 'Updated during testing.', satisfactionRate: 5 }),
+    tests: [
+      `// 200 = edited; 404 = no report yet; 422 = edit window expired (run >24h after filing)`,
+      `pm.test("200 or 404 or 422 — Edit Cell Report", () => {`,
+      `  pm.expect([200, 404, 422]).to.include(pm.response.code);`,
+      `});`,
+      `if (pm.response.code === 422) {`,
+      `  const j = pm.response.json();`,
+      `  pm.test("422 code is EDIT_WINDOW_EXPIRED", () => pm.expect(j.error.code).to.equal("EDIT_WINDOW_EXPIRED"));`,
+      `}`,
+    ],
+  }),
   buildRequest({
     name: 'Void Cell Report',
     method: 'POST',
@@ -2336,6 +2633,70 @@ const cellArchiveSubFolder = folder('Archive', [
     url: { raw: '{{baseUrl}}/cells/{{cellId}}/archive' },
     auth: bearerAuth('leaderToken'),
     tests: [`pm.test("200 OK — Archive Cell", () => pm.response.to.have.status(200));`],
+  }),
+
+  // Transfer Ownership — admin/super_admin only
+  // Notifies new owner via in-app notification + email
+  buildRequest({
+    name: 'Transfer Cell Ownership (admin)',
+    method: 'POST',
+    url: { raw: '{{baseUrl}}/cells/{{cellId}}/transfer-ownership' },
+    auth: bearerAuth('adminToken'),
+    headers: jsonHeader(),
+    body: jsonBody({ leaderUid: '{{leaderId}}', g12LeaderUid: '{{g12Id}}' }),
+    description: 'Only admin and super_admin can transfer cell ownership. At least one of leaderUid or g12LeaderUid must be provided and must differ from the current owners.',
+    tests: [
+      `// 200 = transferred; 404 = cell not found; 422 = no change (same UIDs as current owners)`,
+      `pm.test("200 or 404 or 422 — Transfer Ownership (admin)", () => {`,
+      `  pm.expect([200, 404, 422]).to.include(pm.response.code);`,
+      `});`,
+      `if (pm.response.code === 200) {`,
+      `  const j = pm.response.json();`,
+      `  pm.test("leaderUid updated", () => pm.expect(j.leaderUid).to.be.a("string"));`,
+      `  pm.test("g12LeaderUid updated", () => pm.expect(j.g12LeaderUid).to.be.a("string"));`,
+      `}`,
+    ],
+  }),
+  // Leader tries — must get 403 now
+  buildRequest({
+    name: 'Transfer Cell Ownership — leader (expect 403)',
+    method: 'POST',
+    url: { raw: '{{baseUrl}}/cells/{{cellId}}/transfer-ownership' },
+    auth: bearerAuth('leaderToken'),
+    headers: jsonHeader(),
+    body: jsonBody({ leaderUid: '{{g12Id}}' }),
+    description: 'leader and g12 roles no longer have access to transfer ownership. Must return 403.',
+    tests: [
+      `pm.test("403 — leader cannot transfer ownership", () => pm.response.to.have.status(403));`,
+    ],
+  }),
+  // G12 tries — must get 403
+  buildRequest({
+    name: 'Transfer Cell Ownership — g12 (expect 403)',
+    method: 'POST',
+    url: { raw: '{{baseUrl}}/cells/{{cellId}}/transfer-ownership' },
+    auth: bearerAuth('g12Token'),
+    headers: jsonHeader(),
+    body: jsonBody({ leaderUid: '{{leaderId}}' }),
+    description: 'g12 role no longer has access. Must return 403.',
+    tests: [
+      `pm.test("403 — g12 cannot transfer ownership", () => pm.response.to.have.status(403));`,
+    ],
+  }),
+
+  // Delete Cell — only the owning leader, G12 leader, or admin can delete
+  // Run last in this sub-folder so {{cellId}} is still available from Create Cell
+  buildRequest({
+    name: 'Delete Cell Group ★ NEW',
+    method: 'DELETE',
+    url: { raw: '{{baseUrl}}/cells/{{cellId}}' },
+    auth: bearerAuth('leaderToken'),
+    tests: [
+      `// 204 = deleted; 403 = not owner; 404 = already deleted or never created`,
+      `pm.test("204 or 403 or 404 — Delete Cell", () => {`,
+      `  pm.expect([204, 403, 404]).to.include(pm.response.code);`,
+      `});`,
+    ],
   }),
 ]);
 
@@ -2568,7 +2929,7 @@ const collection = {
       'Key V2 changes vs V1:\n' +
       '  • Registration auto-approves as Member (no pending_approval queue)\n' +
       '  • Roles are additive arrays: ["member","student","leader","g12"]\n' +
-      '  • Role Requests: POST /role-requests (multipart/form-data with PDF)\n' +
+      '  • Role Requests: PATCH /me (profile) → POST /me/qualification (PDF) → POST /role-requests { requestedRole: "student" }\n' +
       '  • Batches: intake cohorts under each course\n' +
       '  • Cell Groups, Cell Reports, Analytics dashboards\n' +
       '  • Federated OAuth (Google + Apple SDK + Apple web flow)',

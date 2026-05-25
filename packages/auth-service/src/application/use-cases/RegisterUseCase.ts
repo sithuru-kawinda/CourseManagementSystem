@@ -3,6 +3,7 @@ import { getFirestore }        from 'firebase-admin/firestore';
 import { createHttpError }     from '@shared/errors';
 import { OutboxEventPublisher } from '@shared/events';
 import { UserServiceClient }   from '../../infrastructure/clients/UserServiceClient';
+import { isEmailReachable }    from '../../utils/emailValidator';
 import { config }              from '../../config';
 
 export interface RegisterInput {
@@ -19,16 +20,29 @@ export class RegisterUseCase {
     private readonly outbox:     OutboxEventPublisher,
   ) {}
 
-  async execute(input: RegisterInput, requestId: string): Promise<{ uid: string }> {
+  async execute(input: RegisterInput, requestId: string): Promise<{ uid: string; message: string }> {
+    // ── Step 1: Validate email domain is real and reachable ──────────────────
+    // Checks MX DNS records + disposable domain blocklist.
+    // Runs before any Firebase call so fake emails never enter the system.
+    const { valid, reason } = await isEmailReachable(input.email);
+    if (!valid) {
+      if (reason === 'DISPOSABLE_EMAIL') {
+        throw createHttpError(422, 'DISPOSABLE_EMAIL', 'Disposable email addresses are not allowed. Please use a real email address.');
+      }
+      throw createHttpError(422, 'EMAIL_DOMAIN_UNREACHABLE', 'This email address does not appear to be valid. Please check the address and try again.');
+    }
+
+    // ── Step 2: Check uniqueness ─────────────────────────────────────────────
     const exists = await this.userClient.emailExists(input.email);
     if (exists) throw createHttpError(409, 'EMAIL_EXISTS', 'Email address already registered.');
 
     let record;
     try {
       record = await getAuth().createUser({
-        email:       input.email,
-        password:    input.password,
-        displayName: `${input.firstName} ${input.lastName}`,
+        email:         input.email,
+        password:      input.password,
+        displayName:   `${input.firstName} ${input.lastName}`,
+        emailVerified: true,   // account is active immediately — no OTP step required
       });
     } catch (authErr: unknown) {
       if ((authErr as { code?: string })?.code === 'auth/email-already-exists') {
@@ -59,6 +73,7 @@ export class RegisterUseCase {
         deletedAt:         null,
       });
 
+      // Publish welcome event — notification-service sends the welcome email with login button
       await this.outbox.publishWithBatch({
         type:    'user.registered',
         payload: {
@@ -66,8 +81,8 @@ export class RegisterUseCase {
           email:     input.email,
           firstName: input.firstName,
           lastName:  input.lastName,
-          password:  input.password,  // plain-text; used by notification-service to send welcome email
-          appUrl:    config.appUrl,   // login link included in welcome email
+          password:  input.password,   // plain-text; shown once in the welcome email
+          appUrl:    config.appUrl,    // login page URL for the "Login" button
         },
         requestId,
       }, batch);
@@ -78,6 +93,9 @@ export class RegisterUseCase {
       throw err;
     }
 
-    return { uid: record.uid };
+    return {
+      uid:     record.uid,
+      message: 'Registration successful. You can now log in to your account.',
+    };
   }
 }

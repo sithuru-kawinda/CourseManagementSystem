@@ -55,7 +55,14 @@ export class FileReportUseCase {
 
     await this.outbox.publishWithBatch({
       type:    'cell_report.filed',
-      payload: { cellId, reportId: report.id, filledByUid, date: report.date },
+      payload: {
+        cellId,
+        cellName:     cell.name,
+        g12LeaderUid: cell.g12LeaderUid,
+        reportId:     report.id,
+        filledByUid,
+        date:         report.date,
+      },
       requestId,
     });
 

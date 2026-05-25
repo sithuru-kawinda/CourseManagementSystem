@@ -10,6 +10,11 @@ import { UserRegisteredHandler }              from '../../application/handlers/U
 import { AdminSuspendedHandler }              from '../../application/handlers/AdminSuspendedHandler';
 import { AdminCreatedHandler }                from '../../application/handlers/AdminCreatedHandler';
 import { RoleGrantedHandler }                 from '../../application/handlers/RoleGrantedHandler';
+import { CellJoinRequestedHandler }           from '../../application/handlers/CellJoinRequestedHandler';
+import { CellJoinApprovedHandler }            from '../../application/handlers/CellJoinApprovedHandler';
+import { CellJoinRejectedHandler }            from '../../application/handlers/CellJoinRejectedHandler';
+import { CellReportFiledHandler }             from '../../application/handlers/CellReportFiledHandler';
+import { CellOwnershipTransferredHandler }    from '../../application/handlers/CellOwnershipTransferredHandler';
 import { internalEventSchema }                from '../validators/notificationValidator';
 
 export class EventController {
@@ -23,6 +28,11 @@ export class EventController {
     private readonly adminSuspended:       AdminSuspendedHandler,
     private readonly adminCreated:         AdminCreatedHandler,
     private readonly roleGranted:          RoleGrantedHandler,
+    private readonly cellJoinRequested:    CellJoinRequestedHandler,
+    private readonly cellJoinApproved:     CellJoinApprovedHandler,
+    private readonly cellJoinRejected:     CellJoinRejectedHandler,
+    private readonly cellReportFiled:          CellReportFiledHandler,
+    private readonly cellOwnershipTransferred: CellOwnershipTransferredHandler,
   ) {}
 
   receiveEvent = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
@@ -59,6 +69,21 @@ export class EventController {
           break;
         case 'role.granted':
           await this.roleGranted.handle(payload as unknown as Parameters<typeof this.roleGranted.handle>[0], requestId);
+          break;
+        case 'cell.join_requested':
+          await this.cellJoinRequested.handle(payload as unknown as Parameters<typeof this.cellJoinRequested.handle>[0], requestId);
+          break;
+        case 'cell.join_approved':
+          await this.cellJoinApproved.handle(payload as unknown as Parameters<typeof this.cellJoinApproved.handle>[0], requestId);
+          break;
+        case 'cell.join_rejected':
+          await this.cellJoinRejected.handle(payload as unknown as Parameters<typeof this.cellJoinRejected.handle>[0], requestId);
+          break;
+        case 'cell_report.filed':
+          await this.cellReportFiled.handle(payload as unknown as Parameters<typeof this.cellReportFiled.handle>[0], requestId);
+          break;
+        case 'cell.ownership_transferred':
+          await this.cellOwnershipTransferred.handle(payload as unknown as Parameters<typeof this.cellOwnershipTransferred.handle>[0], requestId);
           break;
         default:
           logger.warn({ eventType }, 'Unhandled event type');

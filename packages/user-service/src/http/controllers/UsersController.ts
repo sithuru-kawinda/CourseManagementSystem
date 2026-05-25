@@ -10,8 +10,9 @@ import { AddRoleUseCase }                 from '../../application/use-cases/AddR
 import { RemoveRoleUseCase }              from '../../application/use-cases/RemoveRoleUseCase';
 import { CreateUserDirectlyUseCase }      from '../../application/use-cases/CreateUserDirectlyUseCase';
 import { PromoteMemberUseCase }           from '../../application/use-cases/PromoteMemberUseCase';
+import { DemoteMemberUseCase }           from '../../application/use-cases/DemoteMemberUseCase';
 import { DeleteUserUseCase }              from '../../application/use-cases/DeleteUserUseCase';
-import { listUsersSchema, assignRoleSchema, createUserDirectlySchema, promoteMemberSchema } from '../validators/userValidator';
+import { listUsersSchema, assignRoleSchema, createUserDirectlySchema, promoteMemberSchema, demoteMemberSchema } from '../validators/userValidator';
 import { TtlCache }                       from '../../infrastructure/cache/TtlCache';
 import { FindAllResult }                  from '../../domain/repositories/IUserRepository';
 
@@ -25,6 +26,7 @@ export class UsersController {
     private readonly removeRoleUseCase:         RemoveRoleUseCase,
     private readonly createUserDirectlyUseCase: CreateUserDirectlyUseCase,
     private readonly promoteMemberUseCase:      PromoteMemberUseCase,
+    private readonly demoteMemberUseCase:       DemoteMemberUseCase,
     private readonly deleteUserUseCase:         DeleteUserUseCase,
   ) {}
 
@@ -124,6 +126,36 @@ export class UsersController {
         requestId,
       });
 
+      res.status(204).send();
+    } catch (err) { next(err); }
+  };
+
+  /**
+   * POST /users/:uid/demote
+   * Remove a role from a user and revert them to their remaining roles.
+   * Dual-writes Firestore roles[] + Firebase Auth custom claims.
+   * Caller-role permissions:
+   *   super_admin / admin → can demote student / leader / g12
+   *   g12                 → can demote leader / g12
+   *   leader              → can demote g12 only
+   */
+  demote = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const parsed = demoteMemberSchema.safeParse(req.body);
+      if (!parsed.success) return next(fromZodError(parsed.error));
+
+      const principal = (req as AuthenticatedRequest).principal;
+      const requestId = (req.headers['x-request-id'] as string) ?? '';
+
+      await this.demoteMemberUseCase.execute({
+        targetUid:   req.params.uid,
+        role:        parsed.data.role,
+        callerUid:   principal.uid,
+        callerRoles: principal.roles,
+        requestId,
+      });
+
+      UsersController.listCache.clear();
       res.status(204).send();
     } catch (err) { next(err); }
   };

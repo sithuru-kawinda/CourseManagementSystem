@@ -10,6 +10,10 @@ x-emulator-env: &emulator-env
   FIRESTORE_EMULATOR_HOST: host.docker.internal:8080
   FIREBASE_AUTH_EMULATOR_HOST: host.docker.internal:9099
   FIREBASE_STORAGE_EMULATOR_HOST: host.docker.internal:9199
+  # Override project ID to match the emulator's configured project (demo-cmp).
+  # The Auth emulator always issues tokens with aud/iss=demo-cmp regardless of
+  # --project flag, so all services must use the same project to verify tokens.
+  FIREBASE_PROJECT_ID: demo-cmp
 
 # host.docker.internal is built-in on Docker Desktop (Windows/Mac).
 # On Linux it must be mapped to the host gateway — this entry is a no-op on Windows/Mac.
@@ -83,3 +87,11 @@ services:
     environment:
       <<: *emulator-env
     extra_hosts: *extra-hosts
+
+  # ── MailHog — local email server (no external service needed) ─────────────
+  # All outgoing emails are captured here — view at http://localhost:8025
+  mailhog:
+    image: mailhog/mailhog:latest
+    ports:
+      - "1025:1025"   # SMTP port — services send emails here
+      - "8025:8025"   # Web UI  — view all emails in browser

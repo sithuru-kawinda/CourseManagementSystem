@@ -41,3 +41,10 @@ export const listJoinRequestsSchema = z.object({
   cursor: z.string().optional(),
   status: z.enum(['pending', 'approved', 'rejected']).optional(),
 });
+
+export const transferOwnershipSchema = z.object({
+  leaderUid:    z.string().min(1).optional(),
+  g12LeaderUid: z.string().min(1).optional(),
+}).refine(data => data.leaderUid !== undefined || data.g12LeaderUid !== undefined, {
+  message: 'At least one of leaderUid or g12LeaderUid must be provided.',
+});

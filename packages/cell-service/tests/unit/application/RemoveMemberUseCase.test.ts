@@ -1,10 +1,10 @@
-import { RemoveMemberUseCase }   from '../../../src/application/use-cases/RemoveMemberUseCase';
+﻿import { RemoveMemberUseCase }   from '../../../src/application/use-cases/RemoveMemberUseCase';
 import { ICellGroupRepository }  from '../../../src/domain/repositories/ICellGroupRepository';
 import { CellGroup }             from '../../../src/domain/entities/CellGroup';
 
 const makeRepo = (): jest.Mocked<ICellGroupRepository> => ({
   findById: jest.fn(), findByMember: jest.fn(), findAll: jest.fn(),
-  create: jest.fn(), update: jest.fn(),
+  create: jest.fn(), update: jest.fn(), delete: jest.fn(),
 });
 
 const makeCell = (members: string[] = ['leader-uid', 'member-uid']): CellGroup =>

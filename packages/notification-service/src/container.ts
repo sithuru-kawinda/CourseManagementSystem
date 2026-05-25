@@ -12,6 +12,11 @@ import { UserRegisteredHandler }           from './application/handlers/UserRegi
 import { AdminSuspendedHandler }           from './application/handlers/AdminSuspendedHandler';
 import { AdminCreatedHandler }             from './application/handlers/AdminCreatedHandler';
 import { RoleGrantedHandler }              from './application/handlers/RoleGrantedHandler';
+import { CellJoinRequestedHandler }        from './application/handlers/CellJoinRequestedHandler';
+import { CellJoinApprovedHandler }         from './application/handlers/CellJoinApprovedHandler';
+import { CellJoinRejectedHandler }         from './application/handlers/CellJoinRejectedHandler';
+import { CellReportFiledHandler }          from './application/handlers/CellReportFiledHandler';
+import { CellOwnershipTransferredHandler } from './application/handlers/CellOwnershipTransferredHandler';
 import { NotificationController }          from './http/controllers/NotificationController';
 import { EventController }                 from './http/controllers/EventController';
 
@@ -30,6 +35,11 @@ const userRegHandler        = new UserRegisteredHandler(notifRepo, userClient, d
 const adminSuspendedHandler = new AdminSuspendedHandler(notifRepo, dispatcher);
 const adminCreatedHandler   = new AdminCreatedHandler(dispatcher);
 const roleGrantedHandler    = new RoleGrantedHandler(notifRepo, dispatcher);
+const cellJoinReqHandler    = new CellJoinRequestedHandler(notifRepo);
+const cellJoinAppHandler    = new CellJoinApprovedHandler(notifRepo);
+const cellJoinRejHandler    = new CellJoinRejectedHandler(notifRepo);
+const cellReportFiledHandler          = new CellReportFiledHandler(notifRepo);
+const cellOwnershipTransferredHandler = new CellOwnershipTransferredHandler(notifRepo, userClient, dispatcher);
 
 export const container = {
   notificationController: new NotificationController(notifRepo),
@@ -38,5 +48,7 @@ export const container = {
     enrollPendingHandler, enrollApprovedHandler, enrollRejectedHandler,
     userRegHandler, adminSuspendedHandler, adminCreatedHandler,
     roleGrantedHandler,
+    cellJoinReqHandler, cellJoinAppHandler, cellJoinRejHandler, cellReportFiledHandler,
+    cellOwnershipTransferredHandler,
   ),
 };

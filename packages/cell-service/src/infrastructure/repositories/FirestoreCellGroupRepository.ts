@@ -30,7 +30,8 @@ export class FirestoreCellGroupRepository implements ICellGroupRepository {
     if (opts.state)     q = q.where('state',     '==', opts.state);
     if (opts.type)      q = q.where('type',      '==', opts.type);
     if (opts.area)      q = q.where('area',      '==', opts.area);
-    if (opts.leaderUid) q = q.where('leaderUid', '==', opts.leaderUid);
+    if (opts.leaderUid)    q = q.where('leaderUid',    '==', opts.leaderUid);
+    if (opts.g12LeaderUid) q = q.where('g12LeaderUid', '==', opts.g12LeaderUid);
 
     const total = (await q.count().get()).data().count;
     q = q.orderBy('createdAt', 'desc').limit(opts.limit);
@@ -54,5 +55,9 @@ export class FirestoreCellGroupRepository implements ICellGroupRepository {
   async update(cell: CellGroup): Promise<void> {
     const { id, ...doc } = { ...cell } as CellGroupProps;
     await this.col.doc(id).update(doc as Record<string, unknown>);
+  }
+
+  async delete(id: string): Promise<void> {
+    await this.col.doc(id).delete();
   }
 }

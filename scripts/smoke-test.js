@@ -13,9 +13,9 @@
 
 const BASE    = 'http://localhost:3000/api/v1';
 const ONLINE  = process.argv.includes('--online');
-const API_KEY = ONLINE
-  ? 'AIzaSyDudm6GFhmqLd6zVW0igYL0myX-vN9H5-0'   // e-learning-f4209 web API key
-  : 'demo-key';                                    // any value works with emulator
+// Real web API key is required even for local emulator when singleProjectMode=false —
+// the emulator uses the key to route sign-in requests to the correct project namespace.
+const API_KEY = 'AIzaSyDudm6GFhmqLd6zVW0igYL0myX-vN9H5-0'; // e-learning-f4209 web API key
 const AUTH_URL = ONLINE
   ? `https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${API_KEY}`
   : `http://127.0.0.1:9099/www.googleapis.com/identitytoolkit/v3/relyingparty/verifyPassword?key=${API_KEY}`;

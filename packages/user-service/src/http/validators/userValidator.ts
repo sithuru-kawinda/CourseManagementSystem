@@ -18,6 +18,11 @@ export const promoteMemberSchema = z.object({
   role: z.enum(['leader', 'g12']),
 });
 
+/** Used by leader / g12 / admin / super_admin to demote a user. */
+export const demoteMemberSchema = z.object({
+  role: z.enum(['student', 'leader', 'g12']),
+});
+
 export const createUserDirectlySchema = z.object({
   firstName:       z.string().min(1).max(50),
   lastName:        z.string().min(1).max(50),

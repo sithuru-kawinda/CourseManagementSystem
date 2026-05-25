@@ -8,6 +8,8 @@ export interface NotificationPreferences {
   push:  boolean;
 }
 
+export type Gender = 'male' | 'female' | 'other';
+
 export interface UserProps {
   uid:                      string;
   email:                    string;
@@ -22,6 +24,13 @@ export interface UserProps {
   fcmTokens?:               string[];
   notificationPreferences?: NotificationPreferences;
   providers?:               string[];
+  // Extended profile fields — used by role request flow
+  dateOfBirth?:             string | null;        // YYYY-MM-DD
+  gender?:                  Gender | null;
+  address?:                 string | null;
+  qualificationTitle?:      string | null;
+  qualificationUrl?:        string | null;        // Firebase Storage download URL
+  qualificationStoragePath?: string | null;       // internal path — for signed URL generation
   createdAt:                string;
   updatedAt:                string;
   deletedAt:                string | null;
@@ -41,6 +50,12 @@ export class User {
   fcmTokens:                   string[];
   notificationPreferences:     NotificationPreferences;
   providers:                   string[];
+  dateOfBirth:                 string | null;
+  gender:                      Gender | null;
+  address:                     string | null;
+  qualificationTitle:          string | null;
+  qualificationUrl:            string | null;
+  qualificationStoragePath:    string | null;
   readonly createdAt:          string;
   updatedAt:                   string;
   deletedAt:                   string | null;
@@ -59,6 +74,12 @@ export class User {
     this.fcmTokens                = props.fcmTokens ?? [];
     this.notificationPreferences  = props.notificationPreferences ?? { email: true, push: true };
     this.providers                = props.providers ?? ['password'];
+    this.dateOfBirth              = props.dateOfBirth ?? null;
+    this.gender                   = props.gender ?? null;
+    this.address                  = props.address ?? null;
+    this.qualificationTitle       = props.qualificationTitle ?? null;
+    this.qualificationUrl         = props.qualificationUrl ?? null;
+    this.qualificationStoragePath = props.qualificationStoragePath ?? null;
     this.createdAt                = props.createdAt;
     this.updatedAt                = props.updatedAt;
     this.deletedAt                = props.deletedAt;
@@ -96,17 +117,29 @@ export class User {
   }
 
   updateProfile(fields: {
-    firstName?:         string;
-    lastName?:          string;
-    profilePhotoUrl?:   string | null;
-    phoneNumber?:       string | null;
-    preferredLanguage?: string;
+    firstName?:                string;
+    lastName?:                 string;
+    profilePhotoUrl?:          string | null;
+    phoneNumber?:              string | null;
+    preferredLanguage?:        string;
+    dateOfBirth?:              string | null;
+    gender?:                   Gender | null;
+    address?:                  string | null;
+    qualificationTitle?:       string | null;
+    qualificationUrl?:         string | null;
+    qualificationStoragePath?: string | null;
   }): void {
-    if (fields.firstName         !== undefined) this.firstName         = fields.firstName;
-    if (fields.lastName          !== undefined) this.lastName          = fields.lastName;
-    if (fields.profilePhotoUrl   !== undefined) this.profilePhotoUrl   = fields.profilePhotoUrl;
-    if (fields.phoneNumber       !== undefined) this.phoneNumber       = fields.phoneNumber;
-    if (fields.preferredLanguage !== undefined) this.preferredLanguage = fields.preferredLanguage;
+    if (fields.firstName                !== undefined) this.firstName                = fields.firstName;
+    if (fields.lastName                 !== undefined) this.lastName                 = fields.lastName;
+    if (fields.profilePhotoUrl          !== undefined) this.profilePhotoUrl          = fields.profilePhotoUrl;
+    if (fields.phoneNumber              !== undefined) this.phoneNumber              = fields.phoneNumber;
+    if (fields.preferredLanguage        !== undefined) this.preferredLanguage        = fields.preferredLanguage;
+    if (fields.dateOfBirth              !== undefined) this.dateOfBirth              = fields.dateOfBirth;
+    if (fields.gender                   !== undefined) this.gender                   = fields.gender;
+    if (fields.address                  !== undefined) this.address                  = fields.address;
+    if (fields.qualificationTitle       !== undefined) this.qualificationTitle       = fields.qualificationTitle;
+    if (fields.qualificationUrl         !== undefined) this.qualificationUrl         = fields.qualificationUrl;
+    if (fields.qualificationStoragePath !== undefined) this.qualificationStoragePath = fields.qualificationStoragePath;
     this.updatedAt = new Date().toISOString();
   }
 

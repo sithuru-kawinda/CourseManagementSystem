@@ -46,7 +46,11 @@ describe('ApproveEnrollmentUseCase', () => {
     useCase      = new ApproveEnrollmentUseCase(repo, outbox, userClient, courseClient);
 
     // Default: clients return enrichment data
-    userClient.getUser.mockResolvedValue({ email: 'alice@example.com', firstName: 'Alice', lastName: 'Smith' });
+    userClient.getUser.mockResolvedValue({
+      email: 'alice@example.com', firstName: 'Alice', lastName: 'Smith',
+      phoneNumber: null, dateOfBirth: null, gender: null, address: null,
+      qualificationTitle: null, qualificationUrl: null,
+    });
     courseClient.getCourseTitle.mockResolvedValue('Bible Foundations');
   });
 
@@ -113,7 +117,7 @@ describe('ApproveEnrollmentUseCase', () => {
 
     expect(outbox.publishWithBatch).toHaveBeenCalledWith(
       expect.objectContaining({
-        payload: expect.objectContaining({ note: undefined }),
+        payload: expect.objectContaining({ note: null }),
       }),
     );
   });
@@ -129,7 +133,7 @@ describe('ApproveEnrollmentUseCase', () => {
     expect(result.state).toBe('approved');
     expect(outbox.publishWithBatch).toHaveBeenCalledWith(
       expect.objectContaining({
-        payload: expect.objectContaining({ email: undefined, studentFirstName: undefined }),
+        payload: expect.objectContaining({ email: null, studentFirstName: null }),
       }),
     );
   });
@@ -144,7 +148,7 @@ describe('ApproveEnrollmentUseCase', () => {
     expect(result.state).toBe('approved');
     expect(outbox.publishWithBatch).toHaveBeenCalledWith(
       expect.objectContaining({
-        payload: expect.objectContaining({ courseTitle: undefined }),
+        payload: expect.objectContaining({ courseTitle: null }),
       }),
     );
   });

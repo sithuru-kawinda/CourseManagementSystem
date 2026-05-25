@@ -6,6 +6,7 @@ import { GetMeUseCase }                             from '../../application/use-
 import { UpdateProfileUseCase }                     from '../../application/use-cases/UpdateProfileUseCase';
 import { ChangePasswordUseCase }                    from '../../application/use-cases/ChangePasswordUseCase';
 import { UploadAvatarUseCase }                      from '../../application/use-cases/UploadAvatarUseCase';
+import { UploadQualificationUseCase }               from '../../application/use-cases/UploadQualificationUseCase';
 import { RegisterFcmTokenUseCase }                  from '../../application/use-cases/RegisterFcmTokenUseCase';
 import { DeregisterFcmTokenUseCase }                from '../../application/use-cases/DeregisterFcmTokenUseCase';
 import { UpdateNotificationPreferencesUseCase }     from '../../application/use-cases/UpdateNotificationPreferencesUseCase';
@@ -22,6 +23,7 @@ export class MeController {
     private readonly updateProfile:        UpdateProfileUseCase,
     private readonly changePassword:       ChangePasswordUseCase,
     private readonly uploadAvatar:         UploadAvatarUseCase,
+    private readonly uploadQualification:  UploadQualificationUseCase,
     private readonly registerFcmToken:     RegisterFcmTokenUseCase,
     private readonly deregisterFcmToken:   DeregisterFcmTokenUseCase,
     private readonly updateNotifPrefs:     UpdateNotificationPreferencesUseCase,
@@ -56,6 +58,21 @@ export class MeController {
         mimeType: req.file!.mimetype,
       });
       sendSuccess(res, { profilePhotoUrl: user.profilePhotoUrl });
+    } catch (err) { next(err); }
+  };
+
+  postQualification = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { uid } = (req as AuthenticatedRequest).principal;
+      const user    = await this.uploadQualification.execute({
+        uid,
+        buffer:   req.file!.buffer,
+        mimeType: req.file!.mimetype,
+      });
+      sendSuccess(res, {
+        qualificationUrl:         user.qualificationUrl,
+        qualificationStoragePath: user.qualificationStoragePath,
+      });
     } catch (err) { next(err); }
   };
 

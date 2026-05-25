@@ -3,7 +3,7 @@
 **Project:** Course Management Portal (`slp-backend`)  
 **Organisation:** Future CX Lanka (Pvt) Ltd  
 **Version:** 1.0.0  
-**Last Updated:** 2026-05-22 (V2 email notifications implemented; GET /users + GET /users/:uid opened to leader/g12 with scoped view; DELETE /users/:uid; Apple Web OAuth; qualification upload for role requests; Phase 20 added)
+**Last Updated:** 2026-05-25 (Phase 21 added: email verification OTP endpoints, cell service expand — delete/transfer/network-reports/edit-report, demote endpoint, remove-role internal, outbox cell.ownership_transferred wiring, authenticate allowUnverified option, MailHog local stack)
 
 > Update this file as implementation progresses. Change `[ ]` to `[x]` when a task is done.
 
@@ -52,10 +52,12 @@
 - [x] `errorHandler` Express middleware (sanitises 5xx)
 
 ### `@shared/auth-middleware`
-- [x] `authenticate()` — verifies Firebase ID token with `checkRevoked=true`
+- [x] `authenticate(options?)` — verifies Firebase ID token with `checkRevoked=true`; `AuthenticateOptions.allowUnverified` bypasses the email-verification gate (V2)
+- [x] Email-verification gate — rejects 403 `EMAIL_NOT_VERIFIED` if `email_verified === false` unless `allowUnverified: true`
 - [x] `authorize(...roles)` — RBAC; `super_admin` inherits `admin`
 - [x] `mustBeOwnerOrAdmin()` — ownership guard
 - [x] `AuthenticatedRequest` type
+- [x] Unit tests: `authenticate()` — 104 new cases incl. `allowUnverified`, `EMAIL_NOT_VERIFIED` gate, federated user exemption
 
 ### `@shared/response`
 - [x] `sendSuccess()` helper
@@ -80,7 +82,7 @@
 
 - [x] `app.ts` — Express app with middleware stack
 - [x] Helmet security headers
-- [x] CORS allowlist middleware
+- [x] CORS allowlist middleware — `Accept-Language` header added; `preflightContinue: false` + `optionsSuccessStatus: 204` for correct OPTIONS handling (V2)
 - [x] Request ID middleware (`X-Request-Id` UUID v4)
 - [x] Pino HTTP logger
 - [x] General rate limiter (200 req/min per IP)
@@ -106,19 +108,23 @@
 - [x] (no domain entities — delegates to Firebase Auth)
 
 ### Use Cases
-- [x] `RegisterUseCase` — email check → Firebase user → claim → Firestore doc → outbox event
+- [x] `RegisterUseCase` — pre-registration email validation (MX DNS + disposable blocklist) → email check → Firebase user → claim → Firestore doc → OTP generation → outbox event
 - [x] `LogoutUseCase` — `revokeRefreshTokens(uid)`
 - [x] `TrackLoginAttemptsUseCase` — lockout after 10 attempts in 15 min
 - [x] `PasswordResetUseCase` — calls Firebase Identity Toolkit REST API
+- [x] `ResendVerificationUseCase` — regenerates 6-digit OTP + re-sends verification email (V2)
+- [x] `VerifyEmailOtpUseCase` — validates 6-digit OTP; marks Firebase Auth `email_verified` on success (V2)
 
 ### Endpoints
 - [x] `POST /auth/register`
-- [x] `POST /auth/logout`
+- [x] `POST /auth/resend-verification` — public; regenerates & re-emails OTP; 204 always (V2)
+- [x] `POST /auth/verify-email` — public; `{ email, otp }`; 204 on success (V2)
+- [x] `POST /auth/logout` — now uses `authenticate({ allowUnverified: true })` (V2)
 - [x] `POST /auth/password-reset`
 - [x] `POST /auth/track-failure` (client reports failed login)
 
 ### Tests
-- [x] Unit: `RegisterUseCase` (3 cases)
+- [x] Unit: `RegisterUseCase` (24 cases — incl. DISPOSABLE_EMAIL, EMAIL_DOMAIN_UNREACHABLE, OTP payload)
 - [x] Unit: `TrackLoginAttemptsUseCase` (4 cases — lockout, reset, fresh)
 - [x] Integration: `POST /auth/register` (4 cases)
 - [x] Integration: `POST /auth/logout` + `POST /auth/password-reset` (4 cases)
@@ -154,12 +160,16 @@
 - [x] `CheckEmailExistsUseCase`
 - [x] `ApproveUserUseCase`
 - [x] `AddRoleUseCase` — appends a role to `user.roles[]` array; used by `ApproveRoleRequestUseCase` (V2)
-- [x] `UploadAvatarUseCase` — saves to Firebase Storage under `avatars/{uid}.{ext}`, calls `makePublic()`, stores `profilePhotoUrl` (V2)
+- [x] `RemoveRoleUseCase` — removes a role from `user.roles[]`; dual-writes Firestore + Firebase Auth claims; `member` role is protected (no-op) (V2)
+- [x] `DemoteMemberUseCase` — public-facing wrapper around `RemoveRoleUseCase`; enforces caller-role rules (super_admin/admin → any; g12 → leader/g12; leader → g12 only) (V2)
+- [x] `UploadAvatarUseCase` — saves to Firebase Storage under `avatars/{uid}.{ext}`; uses download token pattern (not `makePublic()`); stores `profilePhotoUrl` (V2)
 
 ### Internal Endpoints
 - [x] `POST /internal/users/exists` — email uniqueness check
 - [x] `POST /internal/users/approve` — set status = APPROVED
 - [x] `GET /internal/users/admins` — returns admin UIDs (used by notification-service)
+- [x] `POST /internal/users/add-role` — grants a role (used by enrollment-service on role request approval)
+- [x] `POST /internal/users/remove-role` — removes a role (used by outbox-worker on cell ownership transfer auto-demote) (V2)
 - [x] `GET /internal/users/:uid` — returns `{uid, email, firstName, lastName}` (used by enrollment-service to enrich approval/rejection emails)
 
 ### Endpoints
@@ -178,6 +188,9 @@
 - [x] `POST /super-admin/admins/:uid/reactivate` (super_admin)
 - [x] `DELETE /super-admin/admins/:uid` (super_admin)
 - [x] `POST /super-admin/users/:uid/make-admin` (super_admin) — promote member/student to admin
+- [x] `PATCH /users/:uid/roles` (admin/g12) — direct role assignment
+- [x] `POST /users/:uid/promote` (leader/g12/admin/super_admin) — elevate to leader or g12
+- [x] `POST /users/:uid/demote` (leader/g12/admin/super_admin) — remove a role; 204 (V2)
 - [x] `POST /me/avatar` (any authenticated) — multipart upload, image/jpeg + image/png, max 2 MB
 
 ### Tests
@@ -464,7 +477,7 @@
 - [x] `EnrollmentPendingHandler` — in-app to all admins (via UserServiceClient)
 - [x] `EnrollmentApprovedHandler` — in-app + email + push (best-effort)
 - [x] `EnrollmentRejectedHandler` — in-app + email
-- [x] `UserRegisteredHandler` — in-app to all admins
+- [x] `UserRegisteredHandler` — in-app to all admins; welcome email updated: includes 6-digit OTP verification code block when `verificationOtp` is in the payload; subject line changes to "Welcome to TCCR — Your verification code inside" (V2)
 - [x] `AdminSuspendedHandler` — in-app + email
 
 ### Internal
@@ -543,6 +556,7 @@
 - [x] `admin.created` → audit
 - [x] `admin.suspended` → notify + audit
 - [x] `audit.action` → audit
+- [x] `cell.ownership_transferred` → auto-demote handler (calls `POST /internal/users/remove-role` on user-service when `initiatedByOwner: true`) + audit (V2)
 
 ### Tests
 - [x] Unit: `EventDispatcher` (4 cases — known event, unknown event, audit.action, registration.approved multi-target)
@@ -653,6 +667,7 @@
 | 18 | Scheduled Jobs (:3012) | `[x]` |
 | 19 | Google/Apple OAuth + Provider Linking | `[x]` |
 | 20 | V2 Email Notifications | `[x]` |
+| 21 | Email Verification OTP + Cell Service Expand + Demote + Outbox Wiring | `[x]` |
 
 ---
 
@@ -714,29 +729,38 @@
 - [x] `FirestoreJoinRequestRepository` — sub-collection `cell_groups/{id}/join_requests`
 - [x] `FirestoreCellReportRepository` — sub-collection `cell_groups/{id}/cell_reports`; idempotency via `clientReqId` index
 
-### Use Cases (16 total)
+### Use Cases (20 total)
 - [x] `CreateCellGroupUseCase` — adds leader as first member; publishes `cell.created`
-- [x] `GetCellsUseCase` — role-scoped (leader→own cells, member→all active, admin→all)
+- [x] `GetCellsUseCase` — role-scoped (g12→cells where g12LeaderUid===callerUid, leader→own cells, member→all active, admin→all)
 - [x] `GetMyCellsUseCase` — `array-contains` query on members[]
 - [x] `GetCellByIdUseCase` — 403 if not member/owner/admin
 - [x] `UpdateCellGroupUseCase` — owner or admin only
 - [x] `ArchiveCellGroupUseCase` — owner or admin; 409 if already archived
+- [x] `DeleteCellGroupUseCase` — owner or admin; 204 (V2)
+- [x] `TransferCellOwnershipUseCase` — hands leaderUid or g12LeaderUid to new user; publishes `cell.ownership_transferred`; `initiatedByOwner` flag triggers auto-demote via outbox (V2)
 - [x] `AddMembersUseCase` — owner or admin; idempotent (skips existing members)
 - [x] `RemoveMemberUseCase` — owner or admin; 404 if not a member
 - [x] `CreateJoinRequestUseCase` — member/student; 409 CELL_JOIN_REQUEST_PENDING if duplicate; publishes `cell.join_requested`
 - [x] `GetJoinRequestsUseCase` — owner or admin; defaults status=pending
 - [x] `ApproveJoinRequestUseCase` — admin only; adds member atomically; publishes `cell.join_approved`
 - [x] `RejectJoinRequestUseCase` — admin only; publishes `cell.join_rejected`
-- [x] `FileReportUseCase` — owning leader/G12 or super_admin; idempotency via X-Idempotency-Key; increments reportCount; publishes `cell_report.filed`
+- [x] `FileReportUseCase` — owning leader/G12 or super_admin only (plain admin excluded); idempotency via X-Idempotency-Key; increments reportCount; publishes `cell_report.filed`
+- [x] `UpdateCellReportUseCase` — edit within 24 h of filing; only original filer or super_admin; voided reports blocked (V2)
 - [x] `GetReportsUseCase` — member/owner/admin
 - [x] `GetReportByIdUseCase` — member/owner/admin
+- [x] `GetNetworkReportsUseCase` — G12 sees cells where g12LeaderUid===caller; leader sees own cell; admin sees all (V2)
 - [x] `VoidReportUseCase` — owner or admin; 409 REPORT_ALREADY_VOIDED; publishes `cell_report.voided`
 
-### Endpoints (16 total)
+### Endpoints (22 total)
 - [x] `GET /cells`, `GET /cells/mine`, `POST /cells`, `GET /cells/:id`, `PATCH /cells/:id`, `POST /cells/:id/archive`
+- [x] `DELETE /cells/:id` — leader/g12/admin/super_admin; 204 (V2)
+- [x] `POST /cells/:id/transfer-ownership` — `{ leaderUid?, g12LeaderUid? }` (≥1 required); 200 cell (V2)
 - [x] `POST /cells/:id/members`, `DELETE /cells/:id/members/:uid`
 - [x] `POST /cells/:id/join-requests`, `GET /cells/:id/join-requests`, `POST /cells/:id/join-requests/:rid/approve`, `POST /cells/:id/join-requests/:rid/reject`
-- [x] `GET /cells/:id/reports`, `POST /cells/:id/reports` (idempotent), `GET /cells/:id/reports/:rid`, `POST /cells/:id/reports/:rid/void`
+- [x] `GET /cells/network/reports` — scoped network view; registered BEFORE `/cells/:id/reports` (literal wins over param) (V2)
+- [x] `GET /cells/:id/reports`, `POST /cells/:id/reports` (idempotent), `GET /cells/:id/reports/:rid`
+- [x] `PATCH /cells/:id/reports/:rid` — edit within 24 h; filer or super_admin only (V2)
+- [x] `POST /cells/:id/reports/:rid/void`
 
 ### Tests
 - [x] Unit: `CellGroup` entity (14 cases — isOwnedBy, hasMember, addMembers, removeMember, archive, incrementReportCount)
@@ -811,5 +835,44 @@
 - [x] README.md: request counts, folder table, email notification table, login URL
 
 ---
+
+---
+
+## Phase 21 — Email Verification OTP, Cell Service Expand, Demote, Outbox Wiring (2026-05-25)
+
+### Auth Service — Email Verification OTP Flow
+- [x] `RegisterUseCase` — pre-registration email validation (`isEmailReachable()`: MX DNS + disposable blocklist); returns 422 `DISPOSABLE_EMAIL` / `EMAIL_DOMAIN_UNREACHABLE` before any Firebase call
+- [x] `RegisterUseCase` — generates 6-digit OTP, stores in `emailVerificationOtps` collection (15-min TTL); adds `verificationOtp` + `otpExpiresAt` to `user.registered` outbox payload
+- [x] `ResendVerificationUseCase` — regenerates OTP + re-sends verification email; 204 always (no enumeration)
+- [x] `VerifyEmailOtpUseCase` — validates OTP (max 5 attempts); on success calls Firebase Admin `updateUser({ emailVerified: true })`; deletes OTP record
+- [x] `POST /auth/resend-verification` — public endpoint; body: `{ email }` → 204
+- [x] `POST /auth/verify-email` — public endpoint; body: `{ email, otp }` (6-digit numeric) → 204
+- [x] `POST /auth/logout` and `POST /auth/apple/revoke` — updated to `authenticate({ allowUnverified: true })`
+
+### `@shared/auth-middleware` — allowUnverified Option
+- [x] `AuthenticateOptions` interface added: `{ allowUnverified?: boolean }`
+- [x] `authenticate(options?)` — email-verification gate: rejects 403 `EMAIL_NOT_VERIFIED` when `email_verified === false` unless `allowUnverified: true`; federated users always pass (Firebase sets `email_verified=true` for them)
+- [x] Unit tests: 104 new test cases covering gate behaviour, bypass option, federated exemption
+
+### Notification Service — Welcome Email OTP Block
+- [x] `UserRegisteredHandler` — welcome email now includes styled OTP verification block when payload carries `verificationOtp`; subject line: "Welcome to TCCR — Your verification code inside"; falls back to plain login button when no OTP present
+
+### Cell Service — 4 New Endpoints
+- [x] `DeleteCellGroupUseCase` + `DELETE /cells/:id` — permanent delete; owner/admin/super_admin; 204
+- [x] `TransferCellOwnershipUseCase` + `POST /cells/:id/transfer-ownership` — transfer `leaderUid` or `g12LeaderUid`; `{ leaderUid?, g12LeaderUid? }` (at least one required); publishes `cell.ownership_transferred` with `initiatedByOwner` flag; 200 updated cell
+- [x] `GetNetworkReportsUseCase` + `GET /cells/network/reports` — scoped network view (G12→cells by g12LeaderUid, leader→own cell, admin→all); registered before `/cells/:id/reports` in router
+- [x] `UpdateCellReportUseCase` + `PATCH /cells/:id/reports/:rid` — edit within 24 h; only original filer or super_admin; voided reports blocked; all fields optional (PATCH semantics)
+
+### Outbox Worker — cell.ownership_transferred
+- [x] `EventDispatcher` — wired `cell.ownership_transferred`: auto-demote handler calls `POST /internal/users/remove-role` on user-service when `initiatedByOwner: true`; removes `leader` from `previousLeaderUid` and/or `g12` from `previousG12LeaderUid`
+
+### User Service — Demote + Remove-Role Internal
+- [x] `RemoveRoleUseCase` — removes one role from `user.roles[]`; dual-writes Firestore + Firebase Auth claims; `member` role is a no-op (protected)
+- [x] `DemoteMemberUseCase` — public wrapper; caller-role enforcement (super_admin/admin → student/leader/g12; g12 → leader/g12; leader → g12 only); clears list cache
+- [x] `POST /users/:uid/demote` — authenticate(), authorize('leader', 'g12', 'admin', 'super_admin'); body: `{ role: 'student'|'leader'|'g12' }`; 204
+- [x] `POST /internal/users/remove-role` — idempotent; body: `{ uid, role }`; protected by `internalAuth`; called by outbox-worker post ownership-transfer; 204
+
+### Docker Compose — MailHog Local Email Server
+- [x] `docker-compose.local.yml` — added `mailhog/mailhog:latest` service; SMTP on port 1025, web UI on port 8025; all emails captured locally without external SMTP credentials
 
 *© 2026 Future CX Lanka (Pvt) Ltd — Confidential*

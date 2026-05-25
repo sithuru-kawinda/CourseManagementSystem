@@ -4,13 +4,15 @@ export type RoleRequestStatus = 'pending' | 'approved' | 'rejected';
 export type Gender = 'male' | 'female' | 'other';
 
 export interface ApplicantProfile {
-  firstName:   string;
-  lastName:    string;
-  phoneNumber: string;
-  email:       string;
-  dateOfBirth: string; // YYYY-MM-DD
-  gender:      Gender;
-  address:     string;
+  firstName:          string;
+  lastName:           string;
+  phoneNumber:        string | null;
+  email:              string;
+  dateOfBirth:        string | null;  // YYYY-MM-DD
+  gender:             Gender | null;
+  address:            string | null;
+  qualificationTitle: string | null;
+  qualificationUrl:   string | null;  // snapshot of user's PDF URL at time of submission
 }
 
 export interface RoleRequestProps {
@@ -23,8 +25,8 @@ export interface RoleRequestProps {
   createdAt:                string;
   decidedAt:                string | null;
   applicantProfile:         ApplicantProfile;
-  qualificationTitle:       string;
-  qualificationStoragePath: string;
+  qualificationTitle:       string | null;
+  qualificationStoragePath: string | null;
 }
 
 export class RoleRequest {
@@ -37,8 +39,8 @@ export class RoleRequest {
   readonly createdAt:       string;
   decidedAt:                string | null;
   applicantProfile:         ApplicantProfile;
-  qualificationTitle:       string;
-  qualificationStoragePath: string;
+  qualificationTitle:       string | null;
+  qualificationStoragePath: string | null;
 
   constructor(props: RoleRequestProps) {
     this.id                       = props.id;

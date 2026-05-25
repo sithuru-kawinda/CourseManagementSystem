@@ -76,6 +76,11 @@ export class AppleWebCallbackUseCase {
     // 5 ── Find or create Firebase Auth user + Firestore doc ──────────────────
     let uid:       string;
     let isNewUser: boolean;
+    // Tracked so we can embed them as developerClaims in the custom token,
+    // guaranteeing the first ID token (from signInWithCustomToken) always has the
+    // role claim — even before setCustomUserClaims propagates to Firebase's edge servers.
+    let userRole:  string   = 'member';
+    let userRoles: string[] = ['member'];
 
     try {
       const existingUser = await getAuth().getUserByEmail(payload.email);
@@ -93,6 +98,7 @@ export class AppleWebCallbackUseCase {
       isNewUser = true;
 
       await getAuth().setCustomUserClaims(uid, { role: 'member', roles: ['member'] });
+      // userRole / userRoles keep their default 'member' values
 
       const now = new Date().toISOString();
       await getFirestore().collection('users').doc(uid).set({
@@ -120,7 +126,7 @@ export class AppleWebCallbackUseCase {
       });
     }
 
-    // 6 ── For returning users: update provider list and refresh token ─────────
+    // 6 ── For returning users: update provider list, refresh token, and claims ──
     if (!isNewUser) {
       const userDoc = await getFirestore().collection('users').doc(uid).get();
       if (userDoc.exists) {
@@ -131,11 +137,18 @@ export class AppleWebCallbackUseCase {
           appleRefreshToken: tokens.refresh_token,
           updatedAt:         new Date().toISOString(),
         });
+        // Refresh Firebase Auth custom claims from Firestore source of truth so the
+        // next ID token always reflects the user's current roles.
+        userRoles = (data['roles'] as string[] | undefined) ?? ['member'];
+        userRole  = (data['role']  as string  | undefined) ?? userRoles[0] ?? 'member';
+        await getAuth().setCustomUserClaims(uid, { role: userRole, roles: userRoles });
       }
     }
 
-    // 7 ── Issue Firebase custom token ─────────────────────────────────────────
-    const firebaseToken = await getAuth().createCustomToken(uid);
+    // 7 ── Issue Firebase custom token — embed role claims as developerClaims ───
+    //      Guarantees the first ID token from signInWithCustomToken has the role
+    //      claim, even before setCustomUserClaims propagates globally.
+    const firebaseToken = await getAuth().createCustomToken(uid, { role: userRole, roles: userRoles });
 
     return { firebaseToken, uid, isNewUser };
   }

@@ -1,9 +1,9 @@
-import { GetCellsUseCase }       from '../../../src/application/use-cases/GetCellsUseCase';
+﻿import { GetCellsUseCase }       from '../../../src/application/use-cases/GetCellsUseCase';
 import { ICellGroupRepository }  from '../../../src/domain/repositories/ICellGroupRepository';
 
 const makeRepo = (): jest.Mocked<ICellGroupRepository> => ({
   findById: jest.fn(), findByMember: jest.fn(), findAll: jest.fn(),
-  create: jest.fn(), update: jest.fn(),
+  create: jest.fn(), update: jest.fn(), delete: jest.fn(),
 });
 
 const EMPTY_RESULT = { items: [], nextCursor: null, total: 0 };
@@ -20,7 +20,16 @@ describe('GetCellsUseCase', () => {
     repo.findAll.mockResolvedValue(EMPTY_RESULT);
   });
 
-  it('admin sees all cells — passes state filter through', async () => {
+  it('admin sees all cells across ALL states by default — no state filter applied', async () => {
+    await useCase.execute(opts, 'admin-uid', ['admin']);
+
+    // Admin gets everything — state is NOT forced to 'active'
+    expect(repo.findAll).toHaveBeenCalledWith(
+      expect.not.objectContaining({ state: 'active' }),
+    );
+  });
+
+  it('admin can filter by specific state when provided', async () => {
     await useCase.execute({ ...opts, state: 'archived' }, 'admin-uid', ['admin']);
 
     expect(repo.findAll).toHaveBeenCalledWith(
@@ -28,11 +37,14 @@ describe('GetCellsUseCase', () => {
     );
   });
 
-  it('admin defaults to active state when no state filter provided', async () => {
-    await useCase.execute(opts, 'admin-uid', ['admin']);
+  it('super_admin sees all cells across ALL states by default — no state filter applied', async () => {
+    await useCase.execute(opts, 'sa-uid', ['super_admin']);
 
     expect(repo.findAll).toHaveBeenCalledWith(
-      expect.objectContaining({ state: 'active' }),
+      expect.not.objectContaining({ state: 'active' }),
+    );
+    expect(repo.findAll).toHaveBeenCalledWith(
+      expect.not.objectContaining({ leaderUid: 'sa-uid' }),
     );
   });
 
@@ -63,17 +75,6 @@ describe('GetCellsUseCase', () => {
     );
     expect(repo.findAll).toHaveBeenCalledWith(
       expect.not.objectContaining({ leaderUid: 'g12-uid' }),
-    );
-  });
-
-  it('super_admin sees all cells', async () => {
-    await useCase.execute(opts, 'sa-uid', ['super_admin']);
-
-    expect(repo.findAll).toHaveBeenCalledWith(
-      expect.objectContaining({ state: 'active' }),
-    );
-    expect(repo.findAll).toHaveBeenCalledWith(
-      expect.not.objectContaining({ leaderUid: 'sa-uid' }),
     );
   });
 

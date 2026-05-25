@@ -2,6 +2,11 @@ import { RegisterUseCase }      from '../../../src/application/use-cases/Registe
 import { UserServiceClient }   from '../../../src/infrastructure/clients/UserServiceClient';
 import { OutboxEventPublisher } from '@shared/events';
 
+// ─── Email validator mock (bypass real DNS lookup in unit tests) ─────────────
+jest.mock('../../../src/utils/emailValidator', () => ({
+  isEmailReachable: jest.fn().mockResolvedValue({ valid: true }),
+}));
+
 // ─── Firebase Mocks ──────────────────────────────────────────────────────────
 
 const authMock = {
@@ -41,8 +46,6 @@ describe('RegisterUseCase', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    // Re-apply default implementations so a previous test's mockRejectedValue/mockReturnValue
-    // override doesn't bleed into the next test (clearAllMocks only resets calls, not impls).
     authMock.createUser.mockResolvedValue({ uid: 'new-uid' });
     authMock.setCustomUserClaims.mockResolvedValue(undefined);
     authMock.deleteUser.mockResolvedValue(undefined);
@@ -62,11 +65,13 @@ describe('RegisterUseCase', () => {
       const result = await useCase.execute(BASE_INPUT, 'req-1');
 
       expect(result.uid).toBe('new-uid');
+      expect(result.message).toMatch(/you can now log in/i);
       expect(client.emailExists).toHaveBeenCalledWith(BASE_INPUT.email);
       expect(authMock.createUser).toHaveBeenCalledWith({
-        email:       BASE_INPUT.email,
-        password:    BASE_INPUT.password,
-        displayName: 'Viruli Wijesinghe',
+        email:         BASE_INPUT.email,
+        password:      BASE_INPUT.password,
+        displayName:   'Viruli Wijesinghe',
+        emailVerified: true,
       });
       expect(authMock.setCustomUserClaims).toHaveBeenCalledWith(
         'new-uid',
@@ -78,7 +83,7 @@ describe('RegisterUseCase', () => {
       );
     });
 
-    it('outbox event payload includes uid, email, firstName, lastName, password, appUrl', async () => {
+    it('account is email-verified immediately — no OTP in outbox payload', async () => {
       client.emailExists.mockResolvedValue(false);
       outbox.publishWithBatch.mockResolvedValue(undefined);
 
@@ -86,19 +91,24 @@ describe('RegisterUseCase', () => {
 
       expect(outbox.publishWithBatch).toHaveBeenCalledWith(
         expect.objectContaining({
-          type:      'user.registered',
-          payload:   expect.objectContaining({
+          type:    'user.registered',
+          payload: expect.objectContaining({
             uid:       'new-uid',
             email:     BASE_INPUT.email,
             firstName: BASE_INPUT.firstName,
             lastName:  BASE_INPUT.lastName,
-            password:  BASE_INPUT.password,  // used by notification-service for welcome email
-            appUrl:    expect.any(String),   // login link from config.appUrl
+            password:  BASE_INPUT.password,
+            appUrl:    expect.any(String),
           }),
           requestId: 'req-payload',
         }),
         expect.anything(),
       );
+
+      // No OTP fields — login link flow, not OTP verification flow
+      const payload = (outbox.publishWithBatch.mock.calls[0][0] as { payload: Record<string, unknown> }).payload;
+      expect(payload).not.toHaveProperty('verificationOtp');
+      expect(payload).not.toHaveProperty('otpExpiresAt');
     });
 
     it('uses preferredLanguage when provided', async () => {
@@ -107,7 +117,6 @@ describe('RegisterUseCase', () => {
 
       await useCase.execute({ ...BASE_INPUT, preferredLanguage: 'si' }, 'req-lang');
 
-      // batch.set is called with the full user doc — confirm preferredLanguage is passed
       expect(batchMock.set).toHaveBeenCalledWith(
         expect.anything(),
         expect.objectContaining({ preferredLanguage: 'si' }),

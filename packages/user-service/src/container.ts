@@ -4,7 +4,8 @@ import { FirebaseAuthClient }      from './infrastructure/clients/FirebaseAuthCl
 import { AuthServiceClient }       from './infrastructure/clients/AuthServiceClient';
 import { GetMeUseCase }            from './application/use-cases/GetMeUseCase';
 import { UpdateProfileUseCase }    from './application/use-cases/UpdateProfileUseCase';
-import { UploadAvatarUseCase }     from './application/use-cases/UploadAvatarUseCase';
+import { UploadAvatarUseCase }         from './application/use-cases/UploadAvatarUseCase';
+import { UploadQualificationUseCase }  from './application/use-cases/UploadQualificationUseCase';
 import { ChangePasswordUseCase }   from './application/use-cases/ChangePasswordUseCase';
 import { GetUsersUseCase }         from './application/use-cases/GetUsersUseCase';
 import { GetUserByIdUseCase }      from './application/use-cases/GetUserByIdUseCase';
@@ -19,6 +20,7 @@ import { AddRoleUseCase }               from './application/use-cases/AddRoleUse
 import { RemoveRoleUseCase }            from './application/use-cases/RemoveRoleUseCase';
 import { CreateUserDirectlyUseCase }    from './application/use-cases/CreateUserDirectlyUseCase';
 import { PromoteMemberUseCase }         from './application/use-cases/PromoteMemberUseCase';
+import { DemoteMemberUseCase }         from './application/use-cases/DemoteMemberUseCase';
 import { DeleteUserUseCase }           from './application/use-cases/DeleteUserUseCase';
 import { RegisterFcmTokenUseCase }              from './application/use-cases/RegisterFcmTokenUseCase';
 import { DeregisterFcmTokenUseCase }            from './application/use-cases/DeregisterFcmTokenUseCase';
@@ -40,7 +42,8 @@ const outbox        = new OutboxEventPublisher();
 const getMe            = new GetMeUseCase(userRepo);
 const updateProfile    = new UpdateProfileUseCase(userRepo);
 const changePassword   = new ChangePasswordUseCase(userRepo, authClient);
-const uploadAvatar     = new UploadAvatarUseCase(userRepo);
+const uploadAvatar         = new UploadAvatarUseCase(userRepo);
+const uploadQualification  = new UploadQualificationUseCase(userRepo);
 const getUsers         = new GetUsersUseCase(userRepo);
 const getUserById      = new GetUserByIdUseCase(userRepo);
 const suspendUser      = new SuspendUserUseCase(userRepo, authClient, outbox);
@@ -54,6 +57,7 @@ const addRole              = new AddRoleUseCase(userRepo, authClient);
 const removeRole           = new RemoveRoleUseCase(userRepo, authClient);
 const createUserDirectly   = new CreateUserDirectlyUseCase(userRepo, authClient, outbox);
 const promoteMember        = new PromoteMemberUseCase(userRepo, authClient, outbox);
+const demoteMember         = new DemoteMemberUseCase(userRepo, authClient, outbox);
 const deleteUser           = new DeleteUserUseCase(userRepo, authClient);
 const registerFcm      = new RegisterFcmTokenUseCase(userRepo);
 const deregisterFcm    = new DeregisterFcmTokenUseCase(userRepo);
@@ -64,11 +68,11 @@ const unlinkProvider   = new UnlinkProviderUseCase(userRepo);
 // Controllers
 export const container = {
   meController:         new MeController(
-    getMe, updateProfile, changePassword, uploadAvatar,
+    getMe, updateProfile, changePassword, uploadAvatar, uploadQualification,
     registerFcm, deregisterFcm, updateNotifPrefs,
     linkProvider, unlinkProvider,
   ),
-  usersController:      new UsersController(getUsers, getUserById, suspendUser, reactivate, addRole, removeRole, createUserDirectly, promoteMember, deleteUser),
+  usersController:      new UsersController(getUsers, getUserById, suspendUser, reactivate, addRole, removeRole, createUserDirectly, promoteMember, demoteMember, deleteUser),
   superAdminController: new SuperAdminController(createAdmin, deleteAdmin, getUsers, getUserById, suspendUser, reactivate, promoteToAdmin),
-  internalController:   new InternalController(checkEmail, approveUser, getUsers, addRole, getUserById),
+  internalController:   new InternalController(checkEmail, approveUser, getUsers, addRole, removeRole, getUserById),
 };

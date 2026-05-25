@@ -14,24 +14,29 @@ import { VerifyOtpAndResetUseCase }         from '../../application/use-cases/Ve
 import { FederatedSignInUseCase, FederatedProvider } from '../../application/use-cases/FederatedSignInUseCase';
 import { AppleWebCallbackUseCase }          from '../../application/use-cases/AppleWebCallbackUseCase';
 import { AppleRevokeUseCase }               from '../../application/use-cases/AppleRevokeUseCase';
+import { ResendVerificationUseCase }        from '../../application/use-cases/ResendVerificationUseCase';
+import { VerifyEmailOtpUseCase }            from '../../application/use-cases/VerifyEmailOtpUseCase';
 import { AppleAuthClient }                  from '../../infrastructure/clients/AppleAuthClient';
 import { config }                           from '../../config';
 import {
   registerSchema, passwordResetSchema, verifyOtpSchema, trackFailureSchema,
   federatedSignInSchema, verifyTokenInternalSchema, appleCallbackSchema,
+  resendVerificationSchema, verifyEmailOtpSchema,
 } from '../validators/authValidator';
 
 export class AuthController {
   constructor(
-    private readonly registerUseCase:         RegisterUseCase,
-    private readonly logoutUseCase:           LogoutUseCase,
-    private readonly trackAttemptsUseCase:    TrackLoginAttemptsUseCase,
-    private readonly requestResetUseCase:     RequestPasswordResetUseCase,
-    private readonly verifyOtpUseCase:        VerifyOtpAndResetUseCase,
-    private readonly federatedSignInUseCase:  FederatedSignInUseCase,
-    private readonly appleCallbackUseCase:    AppleWebCallbackUseCase,
-    private readonly appleRevokeUseCase:      AppleRevokeUseCase,
-    private readonly appleClient:             AppleAuthClient,
+    private readonly registerUseCase:           RegisterUseCase,
+    private readonly logoutUseCase:             LogoutUseCase,
+    private readonly trackAttemptsUseCase:      TrackLoginAttemptsUseCase,
+    private readonly requestResetUseCase:       RequestPasswordResetUseCase,
+    private readonly verifyOtpUseCase:          VerifyOtpAndResetUseCase,
+    private readonly federatedSignInUseCase:    FederatedSignInUseCase,
+    private readonly appleCallbackUseCase:      AppleWebCallbackUseCase,
+    private readonly appleRevokeUseCase:        AppleRevokeUseCase,
+    private readonly resendVerificationUseCase: ResendVerificationUseCase,
+    private readonly verifyEmailOtpUseCase:     VerifyEmailOtpUseCase,
+    private readonly appleClient:               AppleAuthClient,
   ) {}
 
   // ── Standard auth endpoints ────────────────────────────────────────────────
@@ -41,8 +46,8 @@ export class AuthController {
       const parsed = registerSchema.safeParse(req.body);
       if (!parsed.success) return next(fromZodError(parsed.error));
       const requestId = (req.headers['x-request-id'] as string) ?? '';
-      const { uid } = await this.registerUseCase.execute(parsed.data, requestId);
-      sendSuccess(res, { uid, message: 'Registration successful. You are now an active member.' }, 201);
+      const result = await this.registerUseCase.execute(parsed.data, requestId);
+      sendSuccess(res, result, 201);
     } catch (err) { next(err); }
   };
 
@@ -99,6 +104,24 @@ export class AuthController {
     } catch (err) { next(err); }
   };
 
+  resendVerification = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const parsed = resendVerificationSchema.safeParse(req.body);
+      if (!parsed.success) return next(fromZodError(parsed.error));
+      await this.resendVerificationUseCase.execute(parsed.data.email);
+      res.status(204).send();
+    } catch (err) { next(err); }
+  };
+
+  verifyEmailOtp = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const parsed = verifyEmailOtpSchema.safeParse(req.body);
+      if (!parsed.success) return next(fromZodError(parsed.error));
+      await this.verifyEmailOtpUseCase.execute(parsed.data.email, parsed.data.otp);
+      res.status(204).send();
+    } catch (err) { next(err); }
+  };
+
   // Internal — used by user-service to verify federated tokens for provider linking
   verifyFederatedToken = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
@@ -125,10 +148,10 @@ export class AuthController {
    *   2. Save `state` to sessionStorage
    *   3. window.location.href = authorizeUrl
    */
-  appleInit = async (_req: Request, res: Response, next: NextFunction): Promise<void> => {
+  appleInit = (_req: Request, res: Response, next: NextFunction): void => {
     try {
       if (!config.appleClientId || !config.appleRedirectUri) {
-        return next(createHttpError(503, 'APPLE_NOT_CONFIGURED', 'Apple Sign In is not configured on this server.'));
+        return next(createHttpError(404, 'APPLE_NOT_CONFIGURED', 'Apple Sign In is not configured on this server.'));
       }
 
       // State JWT — short-lived, binds callback to this initiation (CSRF protection)
@@ -164,6 +187,9 @@ export class AuthController {
    */
   appleCallback = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
+      if (!config.appleClientId) {
+        return next(createHttpError(404, 'APPLE_NOT_CONFIGURED', 'Apple Sign In is not configured on this server.'));
+      }
       const parsed = appleCallbackSchema.safeParse(req.body);
       if (!parsed.success) return next(fromZodError(parsed.error));
 

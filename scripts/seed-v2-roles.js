@@ -69,9 +69,10 @@ async function seed() {
     await deleteIfExists(u.email);
 
     const record = await auth.createUser({
-      email:       u.email,
-      password:    u.password,
-      displayName: `${u.firstName} ${u.lastName}`,
+      email:         u.email,
+      password:      u.password,
+      displayName:   `${u.firstName} ${u.lastName}`,
+      emailVerified: true,   // seed accounts are pre-verified — skip the email-verification gate
     });
 
     await auth.setCustomUserClaims(record.uid, { role: u.roles[u.roles.length - 1], roles: u.roles });

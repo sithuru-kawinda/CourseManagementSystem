@@ -15,9 +15,18 @@ export interface AuthenticatedRequest extends Request {
   principal: Principal;
 }
 
+export interface AuthenticateOptions {
+  /**
+   * When true, the email-verification gate is bypassed.
+   * Use on routes that must remain accessible before the user verifies their
+   * email address (e.g. POST /auth/logout, POST /auth/apple/revoke).
+   */
+  allowUnverified?: boolean;
+}
+
 // ── authenticate ─────────────────────────────────────────────────────────────
 
-export function authenticate() {
+export function authenticate(options: AuthenticateOptions = {}) {
   return async (req: Request, _res: Response, next: NextFunction): Promise<void> => {
     const authHeader = req.headers.authorization;
 
@@ -29,13 +38,30 @@ export function authenticate() {
 
     try {
       const decoded = await getAuth().verifyIdToken(token, true); // checkRevoked=true
-      const role    = decoded.role as Role | undefined;
+
+      // decoded.role  — top-level claim written by setCustomUserClaims (may lag on brand-new
+      //                 federated accounts before Firebase propagates the write globally).
+      // fbClaims.role — written by developerClaims in createCustomToken; always present in the
+      //                 very first ID token issued via signInWithCustomToken.
+      const fbClaims = (decoded.firebase as Record<string, unknown> | undefined)?.['claims'] as Record<string, unknown> | undefined;
+      const role     = (decoded.role ?? fbClaims?.['role']) as Role | undefined;
 
       if (!role) {
         return next(createHttpError(401, 'INVALID_TOKEN', 'Token is missing role claim.'));
       }
 
-      const roles = (decoded.roles as Role[] | undefined) ?? [role];
+      const roles = ((decoded.roles ?? fbClaims?.['roles']) as Role[] | undefined) ?? [role as Role];
+
+      // Email-verification gate — reject unverified users unless the route explicitly
+      // opts out (allowUnverified: true). Federated users (Google/Apple) always have
+      // email_verified=true in Firebase so they are never affected by this check.
+      if (!options.allowUnverified && decoded.email_verified === false) {
+        return next(createHttpError(
+          403,
+          'EMAIL_NOT_VERIFIED',
+          'Please verify your email address before continuing. Check your inbox or resend via POST /auth/resend-verification.',
+        ));
+      }
 
       (req as AuthenticatedRequest).principal = {
         uid:   decoded.uid,

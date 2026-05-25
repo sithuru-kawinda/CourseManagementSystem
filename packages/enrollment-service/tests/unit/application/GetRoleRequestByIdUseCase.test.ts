@@ -27,16 +27,18 @@ const makeRequest = (
     createdAt:        '2026-01-01T00:00:00.000Z',
     decidedAt:        null,
     applicantProfile: {
-      firstName:   'John',
-      lastName:    'Doe',
-      phoneNumber: '+94771234567',
-      email:       'john@example.com',
-      dateOfBirth: '2000-06-15',
-      gender:      'male',
-      address:     '123 Main St',
+      firstName:          'John',
+      lastName:           'Doe',
+      phoneNumber:        '+94771234567',
+      email:              'john@example.com',
+      dateOfBirth:        '2000-06-15',
+      gender:             'male',
+      address:            '123 Main St',
+      qualificationTitle: null,
+      qualificationUrl:   null,
     },
     qualificationTitle:       'BSc Computer Science',
-    qualificationStoragePath: 'qualifications/uid-member/req-abc.pdf',
+    qualificationStoragePath: null,
   });
 
 // ── tests ─────────────────────────────────────────────────────────────────────
@@ -135,7 +137,7 @@ describe('GetRoleRequestByIdUseCase', () => {
     expect(result.applicantProfile.gender).toBe('male');
     expect(result.applicantProfile.address).toBe('123 Main St');
     expect(result.qualificationTitle).toBe('BSc Computer Science');
-    expect(result.qualificationStoragePath).toContain('.pdf');
+    expect(result.qualificationStoragePath).toBeNull();
   });
 
   // ── member — ownership violation ─────────────────────────────────────────────

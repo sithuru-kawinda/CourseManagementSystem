@@ -41,7 +41,14 @@ export class CreateJoinRequestUseCase {
 
     await this.outbox.publishWithBatch({
       type:    'cell.join_requested',
-      payload: { cellId, requesterUid, joinRequestId: req.id },
+      payload: {
+        cellId,
+        cellName:     cell.name,
+        leaderUid:    cell.leaderUid,
+        g12LeaderUid: cell.g12LeaderUid,
+        requesterUid,
+        joinRequestId: req.id,
+      },
       requestId,
     });
 
