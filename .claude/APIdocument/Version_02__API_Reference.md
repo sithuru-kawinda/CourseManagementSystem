@@ -466,11 +466,19 @@ Update own profile. `email`, `roles`, `status` are immutable through this endpoi
 | `dateOfBirth` | string\|null | No | `YYYY-MM-DD` |
 | `gender` | string\|null | No | `male` \| `female` \| `other` |
 | `address` | string\|null | No | 1–500 chars |
-| `qualificationTitle` | string\|null | No | Any length — e.g. `"Bachelor of Theology"` |
+| `qualifications` | array | No | Ordered list of qualification entries — see shape below |
 
-> `dateOfBirth`, `gender`, `address`, and `qualificationTitle` are required before submitting a role request via `POST /role-requests`.
+**`qualifications[]` item shape:**
 
-**`200 OK`** — Updated User object.
+| Field | Type | Required | Notes |
+|-------|------|:--------:|-------|
+| `id` | string | Yes | Client-generated UUID — used to identify the entry |
+| `title` | string | Yes | Qualification name — no length limit |
+| `fileUrl` | string\|null | No | URL returned by `POST /me/qualification`; `null` if no PDF attached |
+
+> The first entry (`qualifications[0]`) is automatically used as the primary qualification when submitting a role request via `POST /role-requests`. `dateOfBirth`, `gender`, and `address` are also required before submitting.
+
+**`200 OK`** — Updated User object (includes `qualifications` array).
 
 ---
 
@@ -510,7 +518,14 @@ Upload or replace the authenticated user's profile photo. Stored under `avatars/
 
 ### 3.5 `POST /me/qualification` ★ NEW
 
-Upload or replace the authenticated user's qualification PDF. Stored under `qualifications/{uid}.pdf` in Firebase Storage. The download URL is saved as `qualificationUrl` on the user document and is automatically included when a role request is submitted.
+Upload a qualification PDF to Firebase Storage and receive a download URL.
+
+> **Stateless** — this endpoint does **not** save anything to the user profile. The returned `fileUrl` must be included in the `qualifications[].fileUrl` field when calling `PATCH /me` (§3.2) to persist the qualification. This design supports multiple qualification entries — each PDF gets a unique UUID-namespaced path so uploads never overwrite each other.
+
+**Flow:**
+1. `POST /me/qualification` → receive `{ fileUrl }`
+2. Store `fileUrl` alongside the qualification title in the `qualifications[]` array
+3. `PATCH /me` with `{ qualifications: [{ id, title, fileUrl }, ...] }` to save
 
 **Authentication:** Bearer required | **Roles:** Any
 **Content-Type:** `multipart/form-data`
@@ -522,8 +537,7 @@ Upload or replace the authenticated user's qualification PDF. Stored under `qual
 **`200 OK`**
 ```json
 {
-  "qualificationUrl":         "https://firebasestorage.googleapis.com/v0/b/bucket/o/qualifications%2Fuid.pdf?alt=media&token=...",
-  "qualificationStoragePath": "qualifications/uid.pdf"
+  "fileUrl": "https://firebasestorage.googleapis.com/v0/b/bucket/o/qualifications%2Fuid%2Fuuid.pdf?alt=media&token=..."
 }
 ```
 

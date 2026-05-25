@@ -10,6 +10,13 @@ export interface NotificationPreferences {
 
 export type Gender = 'male' | 'female' | 'other';
 
+/** A single qualification entry — title + optional PDF URL */
+export interface Qualification {
+  id:       string;          // UUID (client-generated or server-assigned)
+  title:    string;          // e.g. "Bachelor of Theology"
+  fileUrl?: string | null;   // Firebase Storage download URL (undefined/null = no PDF)
+}
+
 export interface UserProps {
   uid:                      string;
   email:                    string;
@@ -28,9 +35,12 @@ export interface UserProps {
   dateOfBirth?:             string | null;        // YYYY-MM-DD
   gender?:                  Gender | null;
   address?:                 string | null;
+  qualifications?:          Qualification[];      // ordered list; [0] is sent with role request
+  // Legacy single-qualification fields — kept for enrollment-service backward compat
+  // Auto-synced from qualifications[0] when qualifications is updated via PATCH /me
   qualificationTitle?:      string | null;
-  qualificationUrl?:        string | null;        // Firebase Storage download URL
-  qualificationStoragePath?: string | null;       // internal path — for signed URL generation
+  qualificationUrl?:        string | null;
+  qualificationStoragePath?: string | null;
   createdAt:                string;
   updatedAt:                string;
   deletedAt:                string | null;
@@ -53,8 +63,9 @@ export class User {
   dateOfBirth:                 string | null;
   gender:                      Gender | null;
   address:                     string | null;
-  qualificationTitle:          string | null;
-  qualificationUrl:            string | null;
+  qualifications:              Qualification[];
+  qualificationTitle:          string | null;   // auto-synced from qualifications[0].title
+  qualificationUrl:            string | null;   // auto-synced from qualifications[0].fileUrl
   qualificationStoragePath:    string | null;
   readonly createdAt:          string;
   updatedAt:                   string;
@@ -77,8 +88,10 @@ export class User {
     this.dateOfBirth              = props.dateOfBirth ?? null;
     this.gender                   = props.gender ?? null;
     this.address                  = props.address ?? null;
-    this.qualificationTitle       = props.qualificationTitle ?? null;
-    this.qualificationUrl         = props.qualificationUrl ?? null;
+    this.qualifications           = props.qualifications ?? [];
+    // Legacy single fields — auto-synced from qualifications[0]
+    this.qualificationTitle       = props.qualificationTitle ?? this.qualifications[0]?.title ?? null;
+    this.qualificationUrl         = props.qualificationUrl ?? this.qualifications[0]?.fileUrl ?? null;
     this.qualificationStoragePath = props.qualificationStoragePath ?? null;
     this.createdAt                = props.createdAt;
     this.updatedAt                = props.updatedAt;
@@ -125,6 +138,8 @@ export class User {
     dateOfBirth?:              string | null;
     gender?:                   Gender | null;
     address?:                  string | null;
+    qualifications?:           Qualification[];
+    // Legacy single fields (still accepted for backward compat with upload use case)
     qualificationTitle?:       string | null;
     qualificationUrl?:         string | null;
     qualificationStoragePath?: string | null;
@@ -137,6 +152,12 @@ export class User {
     if (fields.dateOfBirth              !== undefined) this.dateOfBirth              = fields.dateOfBirth;
     if (fields.gender                   !== undefined) this.gender                   = fields.gender;
     if (fields.address                  !== undefined) this.address                  = fields.address;
+    if (fields.qualifications           !== undefined) {
+      this.qualifications     = fields.qualifications;
+      // Auto-sync legacy single fields from the first qualification entry
+      this.qualificationTitle = this.qualifications[0]?.title   ?? null;
+      this.qualificationUrl   = this.qualifications[0]?.fileUrl ?? null;
+    }
     if (fields.qualificationTitle       !== undefined) this.qualificationTitle       = fields.qualificationTitle;
     if (fields.qualificationUrl         !== undefined) this.qualificationUrl         = fields.qualificationUrl;
     if (fields.qualificationStoragePath !== undefined) this.qualificationStoragePath = fields.qualificationStoragePath;

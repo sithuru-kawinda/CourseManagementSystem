@@ -20,8 +20,8 @@ export class UserServiceClient {
     dateOfBirth:          string | null;
     gender:               string | null;
     address:              string | null;
-    qualificationTitle:   string | null;
-    qualificationUrl:     string | null;
+    qualificationTitle:   string | null;  // from qualifications[0].title (auto-synced)
+    qualificationUrl:     string | null;  // from qualifications[0].fileUrl (auto-synced)
   } | null> {
     try {
       const res = await this.http.get<{
@@ -35,17 +35,21 @@ export class UserServiceClient {
         address:              string | null;
         qualificationTitle:   string | null;
         qualificationUrl:     string | null;
+        qualifications?:      { id: string; title: string; fileUrl: string | null }[];
       }>(`/internal/users/${uid}`);
+      const d = res.data;
+      // Prefer qualifications array if present; fall back to legacy single fields
+      const q0 = d.qualifications?.[0] ?? null;
       return {
-        email:              res.data.email,
-        firstName:          res.data.firstName,
-        lastName:           res.data.lastName,
-        phoneNumber:        res.data.phoneNumber        ?? null,
-        dateOfBirth:        res.data.dateOfBirth        ?? null,
-        gender:             res.data.gender             ?? null,
-        address:            res.data.address            ?? null,
-        qualificationTitle: res.data.qualificationTitle ?? null,
-        qualificationUrl:   res.data.qualificationUrl   ?? null,
+        email:              d.email,
+        firstName:          d.firstName,
+        lastName:           d.lastName,
+        phoneNumber:        d.phoneNumber        ?? null,
+        dateOfBirth:        d.dateOfBirth        ?? null,
+        gender:             d.gender             ?? null,
+        address:            d.address            ?? null,
+        qualificationTitle: q0?.title    ?? d.qualificationTitle ?? null,
+        qualificationUrl:   q0?.fileUrl  ?? d.qualificationUrl   ?? null,
       };
     } catch {
       return null;

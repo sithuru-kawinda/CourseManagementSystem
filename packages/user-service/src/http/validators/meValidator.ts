@@ -14,7 +14,16 @@ export const updateProfileSchema = z.object({
   dateOfBirth:       z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'dateOfBirth must be YYYY-MM-DD').nullable().optional(),
   gender:            z.enum(['male', 'female', 'other']).nullable().optional(),
   address:           z.string().min(1).max(500).nullable().optional(),
-  qualificationTitle: z.string().min(1).nullable().optional(),
+  // Multiple qualifications list — replaces the old single qualificationTitle field.
+  // Each entry has a title (required) and an optional PDF URL obtained from POST /me/qualification.
+  // qualifications[0] is automatically used as the primary qualification for role requests.
+  qualifications: z.array(
+    z.object({
+      id:      z.string().min(1),                        // client-generated UUID
+      title:   z.string().min(1),                        // no length limit
+      fileUrl: z.string().url().nullable().optional(),   // URL from POST /me/qualification
+    }),
+  ).optional(),
 });
 
 const passwordRule = z

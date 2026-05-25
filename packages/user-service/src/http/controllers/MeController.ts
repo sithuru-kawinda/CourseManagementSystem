@@ -64,15 +64,15 @@ export class MeController {
   postQualification = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { uid } = (req as AuthenticatedRequest).principal;
-      const user    = await this.uploadQualification.execute({
+      // Stateless upload — returns fileUrl only. No profile write.
+      // Frontend stores this URL and includes it in qualifications[].fileUrl
+      // when calling PATCH /me to save the full qualifications list.
+      const result = await this.uploadQualification.execute({
         uid,
         buffer:   req.file!.buffer,
         mimeType: req.file!.mimetype,
       });
-      sendSuccess(res, {
-        qualificationUrl:         user.qualificationUrl,
-        qualificationStoragePath: user.qualificationStoragePath,
-      });
+      sendSuccess(res, { fileUrl: result.fileUrl });
     } catch (err) { next(err); }
   };
 
