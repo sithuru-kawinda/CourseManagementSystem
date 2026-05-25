@@ -2200,7 +2200,7 @@ Fetch cell with full member roster (FR-CG-005).
   "id": "cell-001", "name": "Rathmalana West G12",
   "type": "g12", "area": "Rathmalana",
   "leaderUid": "usr-leader1", "g12LeaderUid": "usr-g12-1",
-  "members": [{ "uid": "usr-mem1", "firstName": "Sapna", "lastName": "Nethmini" }],
+  "members": [{ "uid": "usr-mem1", "firstName": "Sapna", "lastName": "Nethmini", "displayName": "Sapna Nethmini" }],
   "memberCount": 8, "reportCount": 12, "state": "active",
   "createdAt": "2026-01-15T00:00:00.000Z", "updatedAt": "2026-05-14T00:00:00.000Z"
 }

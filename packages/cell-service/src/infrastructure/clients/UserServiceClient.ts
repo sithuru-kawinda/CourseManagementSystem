@@ -3,9 +3,10 @@ import { logger }               from '@shared/logger';
 import { config }               from '../../config';
 
 export interface MemberProfile {
-  uid:       string;
-  firstName: string;
-  lastName:  string;
+  uid:         string;
+  firstName:   string;
+  lastName:    string;
+  displayName: string;   // firstName + ' ' + lastName (spec §13.4)
 }
 
 /**
@@ -17,6 +18,7 @@ export class UserServiceClient {
 
   /**
    * Fetch profiles for a list of member UIDs in parallel.
+   * All calls fire simultaneously (Promise.allSettled) for minimum latency.
    * If any individual lookup fails (deleted user, network error), that member
    * is returned with empty names rather than failing the entire request.
    */
@@ -31,12 +33,19 @@ export class UserServiceClient {
 
     return results.map((result, i) => {
       if (result.status === 'fulfilled') {
-        const d = result.value.data;
-        return { uid: d.uid, firstName: d.firstName ?? '', lastName: d.lastName ?? '' };
+        const d         = result.value.data;
+        const firstName = d.firstName ?? '';
+        const lastName  = d.lastName  ?? '';
+        return {
+          uid:         d.uid,
+          firstName,
+          lastName,
+          displayName: `${firstName} ${lastName}`.trim(),
+        };
       }
       // Lookup failed (user deleted or service unavailable) — return placeholder
       logger.warn({ uid: uids[i] }, 'cell-service: member profile lookup failed — returning placeholder');
-      return { uid: uids[i], firstName: '', lastName: '' };
+      return { uid: uids[i], firstName: '', lastName: '', displayName: '' };
     });
   }
 }

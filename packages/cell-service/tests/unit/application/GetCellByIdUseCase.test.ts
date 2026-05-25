@@ -10,8 +10,8 @@ const makeRepo = (): jest.Mocked<ICellGroupRepository> => ({
 
 const makeUserClient = (): jest.Mocked<UserServiceClient> => ({
   getMemberProfiles: jest.fn().mockResolvedValue([
-    { uid: 'leader-uid', firstName: 'Leader', lastName: 'One' },
-    { uid: 'member-uid', firstName: 'Member', lastName: 'Two' },
+    { uid: 'leader-uid', firstName: 'Leader', lastName: 'One', displayName: 'Leader One' },
+    { uid: 'member-uid', firstName: 'Member', lastName: 'Two', displayName: 'Member Two' },
   ]),
 } as unknown as jest.Mocked<UserServiceClient>);
 
@@ -46,9 +46,11 @@ describe('GetCellByIdUseCase', () => {
     expect(result.id).toBe('cell-1');
     // members should be enriched objects, not raw UIDs
     expect(Array.isArray(result.members)).toBe(true);
+    expect(result.members[0]).toHaveProperty('uid');
     expect(result.members[0]).toHaveProperty('firstName');
     expect(result.members[0]).toHaveProperty('lastName');
-    expect(result.members[0]).toHaveProperty('uid');
+    expect(result.members[0]).toHaveProperty('displayName');
+    expect(result.members[0].displayName).toBe('Leader One');
     expect(userClient.getMemberProfiles).toHaveBeenCalledWith(['leader-uid', 'member-uid']);
   });
 
@@ -65,7 +67,7 @@ describe('GetCellByIdUseCase', () => {
   it('returns cell when caller is admin (even if not a member)', async () => {
     repo.findById.mockResolvedValue(makeCell({ members: ['leader-uid'] }));
     userClient.getMemberProfiles.mockResolvedValue([
-      { uid: 'leader-uid', firstName: 'Leader', lastName: 'One' },
+      { uid: 'leader-uid', firstName: 'Leader', lastName: 'One', displayName: 'Leader One' },
     ]);
 
     const result = await useCase.execute('cell-1', 'admin-uid', ['admin']);
