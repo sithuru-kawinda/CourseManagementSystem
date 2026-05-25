@@ -82,6 +82,8 @@ describe('FederatedSignInUseCase', () => {
       googleClient.verifyIdToken.mockResolvedValue({ email: 'new@gmail.com', name: 'New User', googleUid: 'g-uid-new' });
       mockGetUserByEmail.mockRejectedValue({ code: 'auth/user-not-found' });
       mockCreateUser.mockResolvedValue({ uid: 'new-uid' });
+      // New flow: userRef.get() is called AFTER createUser to check for existing doc
+      mockFirestoreGet.mockResolvedValue({ exists: false });
       mockSetCustomClaims.mockResolvedValue(undefined);
       mockFirestoreSet.mockResolvedValue(undefined);
 
@@ -98,6 +100,36 @@ describe('FederatedSignInUseCase', () => {
         status: 'approved',
         providers: ['google.com'],
       }));
+      expect(outbox.publishWithBatch).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'user.registered' }),
+      );
+    });
+  });
+
+  describe('Google sign-in — Firebase user exists but Firestore doc missing (Case B)', () => {
+    it('creates missing Firestore doc and emits user.registered for existing Firebase user', async () => {
+      googleClient.verifyIdToken.mockResolvedValue({ email: 'orphan@gmail.com', name: 'Orphan User', googleUid: 'g-uid-orphan' });
+      // Firebase Auth has the user (isNewUser=false)
+      mockGetUserByEmail.mockResolvedValue({ uid: 'orphan-uid' });
+      // But Firestore doc does NOT exist
+      mockFirestoreGet.mockResolvedValue({ exists: false });
+      mockSetCustomClaims.mockResolvedValue(undefined);
+      mockFirestoreSet.mockResolvedValue(undefined);
+
+      const result = await useCase.execute('google', 'orphan-google-token', 'en', 'req-4');
+
+      // isNewUser=false (Firebase Auth already had this user)
+      expect(result.isNewUser).toBe(false);
+      expect(result.uid).toBe('orphan-uid');
+      // BUT Firestore doc must be created
+      expect(mockFirestoreSet).toHaveBeenCalledWith(expect.objectContaining({
+        email: 'orphan@gmail.com',
+        role: 'member',
+        roles: ['member'],
+        status: 'approved',
+        providers: ['google.com'],
+      }));
+      // AND user.registered event published
       expect(outbox.publishWithBatch).toHaveBeenCalledWith(
         expect.objectContaining({ type: 'user.registered' }),
       );
