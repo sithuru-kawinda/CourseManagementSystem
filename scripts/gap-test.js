@@ -157,7 +157,8 @@ async function signIn(email, password) {
     const ma = await api('POST', `/super-admin/users/${stuUid}/make-admin`, null, sa);
     record([200, 409, 422].includes(ma.status), 'POST', '/super-admin/users/:uid/make-admin',
       ma.status, ma.status === 200 ? 'promoted' : (ma.data && ma.data.error && ma.data.error.code));
-    if (ma.status === 200) await api('DELETE', `/super-admin/admins/${stuUid}`, null, sa);
+    // Note: intentionally NOT deleting the promoted user — deletion would disable their
+    // Firebase Auth account and break subsequent tests that sign in as student2
   }
 
   // ── 16.1-16.2  /healthz + /readyz per service ────────

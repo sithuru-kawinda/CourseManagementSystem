@@ -49,11 +49,17 @@ function envVar(key, value) {
 }
 
 async function clearEmulators() {
-  // Clear Firestore only — seed-emulator.js handles Auth accounts individually.
-  // Wiping the Auth emulator entirely destabilises checkRevoked token validation.
+  // Clear Firestore
   const fsUrl = `http://localhost:8080/emulator/v1/projects/${FIREBASE_PROJECT}/databases/(default)/documents`;
   const fsRes = await fetch(fsUrl, { method: 'DELETE' });
   if (!fsRes.ok && fsRes.status !== 404) throw new Error(`Firestore clear failed: ${fsRes.status}`);
+
+  // Clear Firebase Auth emulator — ensures disabled/suspended accounts from previous
+  // test runs don't survive into the next Newman session. seed-emulator.js recreates
+  // all accounts fresh after this.
+  const authUrl = `http://localhost:9099/emulator/v1/projects/${FIREBASE_PROJECT}/accounts`;
+  const authRes = await fetch(authUrl, { method: 'DELETE' });
+  if (!authRes.ok && authRes.status !== 404) throw new Error(`Auth emulator clear failed: ${authRes.status}`);
 }
 
 async function seedAccounts() {
@@ -126,7 +132,14 @@ async function main() {
     console.log(`   g12:         ${g12.uid}`);
   } catch (e) {
     console.error(`❌  Auth failed: ${e.message}`);
-    console.error('    Run: node scripts/seed-emulator.js && node scripts/seed-v2-roles.js  (emulators must be running)');
+    console.error('');
+    console.error('    Most common cause: Firebase Auth emulator has stale disabled accounts from a');
+    console.error('    previous test run. The REST /accounts DELETE endpoint does not clear all state.');
+    console.error('');
+    console.error('    Fix: restart the Firebase emulators for a clean slate:');
+    console.error('      Ctrl+C  (stop emulators)');
+    console.error('      npx firebase emulators:start');
+    console.error('      node scripts/newman-run.js');
     process.exit(1);
   }
 

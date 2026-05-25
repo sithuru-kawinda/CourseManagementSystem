@@ -71,12 +71,35 @@ const USERS = [
   },
 ];
 
-async function deleteIfExists(email) {
+/**
+ * Ensure an account is fully reset before (re)creating it.
+ *
+ * The Firebase Auth emulator keeps a persistent in-memory state from startup
+ * that the REST /accounts DELETE endpoint does NOT fully clear. Accounts
+ * disabled by previous test runs can survive between Newman sessions.
+ *
+ * Strategy: if the account exists (even disabled), UPDATE it to re-enable and
+ * reset credentials rather than delete-then-create. This guarantees the account
+ * is usable regardless of emulator state.
+ *
+ * Returns the UID of the existing or newly created account.
+ */
+async function upsertAuthAccount(email, password, displayName) {
   try {
     const existing = await auth.getUserByEmail(email);
-    await auth.deleteUser(existing.uid);
-    console.log(`  removed existing: ${email}`);
-  } catch (_) {}
+    // Account exists — re-enable, reset password, re-verify email
+    await auth.updateUser(existing.uid, {
+      password,
+      displayName,
+      emailVerified: true,
+      disabled:      false,
+    });
+    return existing.uid;
+  } catch (_) {
+    // Account does not exist — create fresh
+    const record = await auth.createUser({ email, password, displayName, emailVerified: true });
+    return record.uid;
+  }
 }
 
 // Accounts created by the Postman collection during Newman runs — clean them up
@@ -88,28 +111,28 @@ async function seed() {
 
   // Clean up any accounts the Postman collection created on previous runs
   for (const email of COLLECTION_GENERATED_EMAILS) {
-    await deleteIfExists(email);
+    try {
+      const existing = await auth.getUserByEmail(email);
+      await auth.deleteUser(existing.uid);
+    } catch (_) {}
   }
 
   const batch = db.batch();
   const now   = new Date().toISOString();
 
   for (const u of USERS) {
-    await deleteIfExists(u.email);
-
-    const record = await auth.createUser({
-      email:         u.email,
-      password:      u.password,
-      displayName:   `${u.firstName} ${u.lastName}`,
-      emailVerified: true,   // seed accounts are pre-verified — skip the email-verification gate
-    });
+    const uid = await upsertAuthAccount(
+      u.email,
+      u.password,
+      `${u.firstName} ${u.lastName}`,
+    );
 
     // V2: all users get 'member' as their base role in addition to their primary role
     const v2Roles = u.role === 'member' ? ['member'] : ['member', u.role];
-    await auth.setCustomUserClaims(record.uid, { role: u.role, roles: v2Roles });
+    await auth.setCustomUserClaims(uid, { role: u.role, roles: v2Roles });
 
     // users collection (owned by user-service)
-    batch.set(db.collection('users').doc(record.uid), {
+    batch.set(db.collection('users').doc(uid), {
       email:           u.email,
       firstName:       u.firstName,
       lastName:        u.lastName,
@@ -124,9 +147,9 @@ async function seed() {
 
     // registrations collection (owned by enrollment-service) — students only
     if (u.role === 'student') {
-      batch.set(db.collection('registrations').doc(record.uid), {
-        id:         record.uid,
-        studentUid: record.uid,
+      batch.set(db.collection('registrations').doc(uid), {
+        id:         uid,
+        studentUid: uid,
         email:      u.email,
         firstName:  u.firstName,
         lastName:   u.lastName,
@@ -139,7 +162,7 @@ async function seed() {
 
     console.log(`✓  ${u.role.padEnd(12)} ${u.email}`);
     console.log(`   Password : ${u.password}`);
-    console.log(`   UID      : ${record.uid}`);
+    console.log(`   UID      : ${uid}`);
     console.log(`   Status   : ${u.status}\n`);
   }
 
