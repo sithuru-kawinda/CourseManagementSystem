@@ -3,7 +3,7 @@
 **Project:** Course Management Portal (`slp-backend`)  
 **Organisation:** Future CX Lanka (Pvt) Ltd  
 **Version:** 1.0.0  
-**Last Updated:** 2026-05-25 (Phase 21 added: email verification OTP endpoints, cell service expand — delete/transfer/network-reports/edit-report, demote endpoint, remove-role internal, outbox cell.ownership_transferred wiring, authenticate allowUnverified option, MailHog local stack)
+**Last Updated:** 2026-05-25 (Phase 21 complete + session additions: qualification profile flow, role-request simplification, access control hardening, API doc fully synced, Postman 188 requests)
 
 > Update this file as implementation progresses. Change `[ ]` to `[x]` when a task is done.
 
@@ -149,7 +149,7 @@
 
 ### Use Cases
 - [x] `GetMeUseCase`
-- [x] `UpdateProfileUseCase`
+- [x] `UpdateProfileUseCase` — extended with `dateOfBirth`, `gender`, `address`, `qualificationTitle` fields (V2)
 - [x] `ChangePasswordUseCase`
 - [x] `GetUsersUseCase`
 - [x] `GetUserByIdUseCase`
@@ -161,8 +161,9 @@
 - [x] `ApproveUserUseCase`
 - [x] `AddRoleUseCase` — appends a role to `user.roles[]` array; used by `ApproveRoleRequestUseCase` (V2)
 - [x] `RemoveRoleUseCase` — removes a role from `user.roles[]`; dual-writes Firestore + Firebase Auth claims; `member` role is protected (no-op) (V2)
-- [x] `DemoteMemberUseCase` — public-facing wrapper around `RemoveRoleUseCase`; enforces caller-role rules (super_admin/admin → any; g12 → leader/g12; leader → g12 only) (V2)
+- [x] `DemoteMemberUseCase` — public-facing wrapper around `RemoveRoleUseCase`; enforces caller-role rules (super_admin/admin → student/leader/g12; g12 → **leader only** (cannot demote g12); leader → g12 only) (V2)
 - [x] `UploadAvatarUseCase` — saves to Firebase Storage under `avatars/{uid}.{ext}`; uses download token pattern (not `makePublic()`); stores `profilePhotoUrl` (V2)
+- [x] `UploadQualificationUseCase` — saves PDF to Firebase Storage under `qualifications/{uid}.pdf`; uses download token pattern; stores `qualificationUrl` + `qualificationStoragePath` on user doc (V2)
 
 ### Internal Endpoints
 - [x] `POST /internal/users/exists` — email uniqueness check
@@ -174,7 +175,8 @@
 
 ### Endpoints
 - [x] `GET /me`
-- [x] `PATCH /me`
+- [x] `PATCH /me` — extended with `dateOfBirth`, `gender`, `address`, `qualificationTitle` optional fields (V2)
+- [x] `POST /me/qualification` (any authenticated) — multipart PDF upload, field `qualification`, max 10 MB; stores `qualificationUrl` on user doc (V2)
 - [x] `POST /me/change-password`
 - [x] `GET /users` — `leader`, `g12`, `admin`, `super_admin`; leader/g12 get scoped view (approved non-admins only)
 - [x] `GET /users/:uid` — `leader`, `g12`, `admin`, `super_admin`; leader/g12 get 403 if target is admin/super_admin
@@ -190,7 +192,7 @@
 - [x] `POST /super-admin/users/:uid/make-admin` (super_admin) — promote member/student to admin
 - [x] `PATCH /users/:uid/roles` (admin/g12) — direct role assignment
 - [x] `POST /users/:uid/promote` (leader/g12/admin/super_admin) — elevate to leader or g12
-- [x] `POST /users/:uid/demote` (leader/g12/admin/super_admin) — remove a role; 204 (V2)
+- [x] `POST /users/:uid/demote` (leader/g12/admin/super_admin) — remove a role; 204; g12 caller limited to demoting leader only (V2)
 - [x] `POST /me/avatar` (any authenticated) — multipart upload, image/jpeg + image/png, max 2 MB
 
 ### Tests
@@ -328,7 +330,7 @@
 - [x] `ApproveEnrollmentUseCase` — enriched outbox payload (student email, firstName, lastName, courseTitle, note, appUrl); fetches from user-service + course-service in parallel (non-blocking)
 - [x] `RejectEnrollmentUseCase` — enriched outbox payload (student email, firstName, lastName, courseTitle, reason, appUrl); fetches from user-service + course-service in parallel (non-blocking)
 - [x] `WithdrawEnrollmentUseCase`
-- [x] `CreateRoleRequestUseCase` — member requests student role; qualification PDF uploaded to Storage (V2)
+- [x] `CreateRoleRequestUseCase` — member requests student role; profile + qualificationUrl snapshot read from user-service automatically (no PDF upload at submission time) (V2)
 - [x] `ApproveRoleRequestUseCase` — grants role via user-service + outbox event (V2)
 - [x] `RejectRoleRequestUseCase` — rejects with optional note (V2)
 - [x] `GetRoleRequestsUseCase` — admin list with status filter + cursor pagination (V2)
@@ -351,9 +353,9 @@
 - [x] `GET /admin/enrollments` (admin)
 - [x] `POST /admin/enrollments/:id/approve` (admin)
 - [x] `POST /admin/enrollments/:id/reject` (admin)
-- [x] `POST /role-requests` (any authenticated) — multipart with qualification PDF (V2)
+- [x] `POST /role-requests` (member) — **JSON** `{ requestedRole: "student" }`; profile+PDF read from user-service automatically; prerequisites: `PATCH /me` + `POST /me/qualification` (V2)
 - [x] `GET /role-requests/mine` (any authenticated) (V2)
-- [x] `GET /role-requests` (admin) (V2)
+- [x] `GET /role-requests` (**admin only**) — leader/g12 removed (V2)
 - [x] `GET /role-requests/:id` (any authenticated — ownership guard) (V2)
 - [x] `GET /role-requests/:id/qualification` (admin — 15-min signed URL) (V2)
 - [x] `POST /role-requests/:id/approve` (admin) (V2)
@@ -566,7 +568,7 @@
 
 ## Phase 12 — Firestore Composite Indexes
 
-- [x] `users` — 4 composite indexes (deletedAt + role/status + createdAt)
+- [x] `users` — 6 composite indexes (deletedAt + role/status + createdAt; **added** deletedAt + role + firstName, deletedAt + role + status + firstName for combined role+name search)
 - [x] `courses` — 3 composite indexes (state + publishedAt + deletedAt)
 - [x] `semesters` — courseId + deletedAt + order
 - [x] `subjects` — semesterId/courseId + deletedAt + order
@@ -576,7 +578,7 @@
 - [x] `notifications` — 2 composite indexes (userUid + createdAt, userUid + read + createdAt)
 - [x] `audit_log` — 2 composite indexes (actorUid + createdAt, action + createdAt)
 - [x] `outbox` — status + createdAt
-- [ ] All indexes deployed to Firebase project (`npx firebase deploy --only firestore:indexes`)
+- [x] All indexes deployed to Firebase project (`npx firebase deploy --only firestore:indexes`) — deployed 2026-05-25
 
 ---
 
@@ -737,7 +739,7 @@
 - [x] `UpdateCellGroupUseCase` — owner or admin only
 - [x] `ArchiveCellGroupUseCase` — owner or admin; 409 if already archived
 - [x] `DeleteCellGroupUseCase` — owner or admin; 204 (V2)
-- [x] `TransferCellOwnershipUseCase` — hands leaderUid or g12LeaderUid to new user; publishes `cell.ownership_transferred`; `initiatedByOwner` flag triggers auto-demote via outbox (V2)
+- [x] `TransferCellOwnershipUseCase` — **admin/super_admin only**; hands leaderUid or g12LeaderUid to new user; publishes `cell.ownership_transferred` with `initiatedByOwner: false` (no auto-demote); leader/g12 access removed (V2)
 - [x] `AddMembersUseCase` — owner or admin; idempotent (skips existing members)
 - [x] `RemoveMemberUseCase` — owner or admin; 404 if not a member
 - [x] `CreateJoinRequestUseCase` — member/student; 409 CELL_JOIN_REQUEST_PENDING if duplicate; publishes `cell.join_requested`
@@ -754,7 +756,7 @@
 ### Endpoints (22 total)
 - [x] `GET /cells`, `GET /cells/mine`, `POST /cells`, `GET /cells/:id`, `PATCH /cells/:id`, `POST /cells/:id/archive`
 - [x] `DELETE /cells/:id` — leader/g12/admin/super_admin; 204 (V2)
-- [x] `POST /cells/:id/transfer-ownership` — `{ leaderUid?, g12LeaderUid? }` (≥1 required); 200 cell (V2)
+- [x] `POST /cells/:id/transfer-ownership` — **admin/super_admin only**; `{ leaderUid?, g12LeaderUid? }` (≥1 required); 200 updated cell; 422 NO_CHANGE if same UIDs; 409 INVALID_STATE if archived (V2)
 - [x] `POST /cells/:id/members`, `DELETE /cells/:id/members/:uid`
 - [x] `POST /cells/:id/join-requests`, `GET /cells/:id/join-requests`, `POST /cells/:id/join-requests/:rid/approve`, `POST /cells/:id/join-requests/:rid/reject`
 - [x] `GET /cells/network/reports` — scoped network view; registered BEFORE `/cells/:id/reports` (literal wins over param) (V2)
@@ -874,5 +876,42 @@
 
 ### Docker Compose — MailHog Local Email Server
 - [x] `docker-compose.local.yml` — added `mailhog/mailhog:latest` service; SMTP on port 1025, web UI on port 8025; all emails captured locally without external SMTP credentials
+
+### Qualification Profile Flow (session additions 2026-05-25)
+- [x] `User` entity — extended with `dateOfBirth`, `gender`, `address`, `qualificationTitle`, `qualificationUrl`, `qualificationStoragePath` fields
+- [x] `PATCH /me` — now accepts `dateOfBirth`, `gender`, `address`, `qualificationTitle` (required before role request)
+- [x] `POST /me/qualification` — new endpoint; multipart PDF (field: `qualification`, max 10 MB); stored under `qualifications/{uid}.pdf`; `qualificationUrl` saved on user doc
+- [x] `UploadQualificationUseCase` + `qualificationUpload` middleware (user-service)
+- [x] `POST /role-requests` changed from multipart/form-data (10 fields + PDF) → simple JSON `{ requestedRole: "student" }`; profile snapshot read from user-service automatically
+- [x] `RoleRequest.ApplicantProfile` — added `qualificationTitle`, `qualificationUrl`; all personal fields now nullable
+- [x] `UserServiceClient.getUser()` (enrollment-service) — extended to return full profile including qualification fields
+
+### Access Control Hardening (session additions 2026-05-25)
+- [x] `POST /cells/:id/transfer-ownership` — restricted to `admin`, `super_admin` only; leader/g12 removed
+- [x] `GET /role-requests` — restricted to `admin` only; leader/g12 removed
+- [x] `POST /users/:uid/demote` — g12 caller now limited to `leader` only (cannot demote g12); previously `leader/g12`
+
+### API Documentation Sync (session additions 2026-05-25)
+- [x] `Version_02__API_Reference.md` — fully synced with all changes; 27 mismatches found and fixed
+- [x] §3 section renumbered — `POST /me/qualification` inserted as §3.5; §3.6–3.10 shifted correctly
+- [x] All role permission matrices updated (demote, transfer-ownership, role-requests)
+- [x] `POST /role-requests` response updated — `qualificationStoragePath: null`, new `applicantProfile` shape
+
+### Postman Collection (session additions 2026-05-25)
+- [x] `CMP_Backend.postman_collection.json` — rebuilt to **188 requests** (was 184)
+- [x] New: `POST /me/qualification` upload request
+- [x] New: `GET /users?role=g12&name=mem&limit=20` filter request
+- [x] New: leader→403 and g12→403 tests for transfer-ownership
+- [x] New: g12→403 test for demoting g12
+- [x] New: leader→403 test for GET /role-requests
+- [x] Updated: Create Role Request (JSON body, not multipart)
+- [x] Updated: nullable field assertions in all role-request response tests
+
+### Admin Utility Scripts (session additions 2026-05-25)
+- [x] `scripts/check-user.js` — look up any user by email in Firebase Auth + Firestore + lockout
+- [x] `scripts/restore-user.js` — re-enable a disabled/soft-deleted user account
+- [x] `scripts/delete-user.js` — soft-delete a user (sets `deletedAt` + disables Firebase Auth)
+- [x] `scripts/test-login.js` — end-to-end login test; marks email verified + generates custom token + calls GET /me
+- [x] `scripts/fix-deleted-at.js` — set `deletedAt: null` (explicit null, not missing field) for Firestore query compatibility
 
 *© 2026 Future CX Lanka (Pvt) Ltd — Confidential*
