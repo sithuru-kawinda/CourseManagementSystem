@@ -22,20 +22,22 @@ import { GetReportByIdUseCase }               from './application/use-cases/GetR
 import { VoidReportUseCase }                  from './application/use-cases/VoidReportUseCase';
 import { UpdateCellReportUseCase }            from './application/use-cases/UpdateCellReportUseCase';
 import { GetNetworkReportsUseCase }           from './application/use-cases/GetNetworkReportsUseCase';
+import { UserServiceClient }                  from './infrastructure/clients/UserServiceClient';
 import { CellGroupController }                from './http/controllers/CellGroupController';
 import { CellReportController }               from './http/controllers/CellReportController';
 
 // Infrastructure
-const cellRepo   = new FirestoreCellGroupRepository();
-const joinRepo   = new FirestoreJoinRequestRepository();
-const reportRepo = new FirestoreCellReportRepository();
-const outbox     = new OutboxEventPublisher();
+const cellRepo      = new FirestoreCellGroupRepository();
+const joinRepo      = new FirestoreJoinRequestRepository();
+const reportRepo    = new FirestoreCellReportRepository();
+const outbox        = new OutboxEventPublisher();
+const userClient    = new UserServiceClient();
 
 // Cell Group use cases
 const createCellUC   = new CreateCellGroupUseCase(cellRepo, outbox);
 const getCellsUC     = new GetCellsUseCase(cellRepo);
 const getMyCellsUC   = new GetMyCellsUseCase(cellRepo);
-const getCellByIdUC  = new GetCellByIdUseCase(cellRepo);
+const getCellByIdUC  = new GetCellByIdUseCase(cellRepo, userClient);
 const updateCellUC   = new UpdateCellGroupUseCase(cellRepo);
 const archiveCellUC  = new ArchiveCellGroupUseCase(cellRepo);
 const deleteCellUC      = new DeleteCellGroupUseCase(cellRepo);
