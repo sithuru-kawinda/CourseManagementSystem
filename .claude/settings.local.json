@@ -48,7 +48,10 @@
       "Bash(Select-Object -ExpandProperty FullName)",
       "Bash(Sort-Object)",
       "Bash(docker exec *)",
-      "Bash(curl -s -X POST http://127.0.0.1:9099/www.googleapis.com/identitytoolkit/v3/relyingparty/verifyPassword?key=AIzaSyDudm6GFhmqLd6zVW0igYL0myX-vN9H5-0 -H 'Content-Type: application/json' -d '{\"email\":\"admin@cmp.com\",\"password\":\"Admin@12345\",\"returnSecureToken\":true}')"
+      "Bash(curl -s -X POST http://127.0.0.1:9099/www.googleapis.com/identitytoolkit/v3/relyingparty/verifyPassword?key=AIzaSyDudm6GFhmqLd6zVW0igYL0myX-vN9H5-0 -H 'Content-Type: application/json' -d '{\"email\":\"admin@cmp.com\",\"password\":\"Admin@12345\",\"returnSecureToken\":true}')",
+      "Bash(git add *)",
+      "Bash(git commit -m 'docs: update tracker with phase 21 session additions — qualification flow, access control hardening, API doc sync, Postman 188 requests *)",
+      "Bash(git push *)"
     ]
   }
 }
